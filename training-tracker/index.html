@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Training Tracker</title>
+  <meta name="description" content="Log workouts, sets and reps, and track your progress.">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+
+  <!-- iOS home screen app -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Training">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">Workout</h1>
+    <div id="topbar-action"></div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <!-- Rest timer pill -->
+  <div id="rest" class="rest hidden" role="timer">
+    <button id="rest-minus" aria-label="Subtract 15 seconds">−15</button>
+    <span id="rest-time">1:30</span>
+    <button id="rest-plus" aria-label="Add 15 seconds">+15</button>
+    <button id="rest-skip" aria-label="Stop rest timer">✕</button>
+  </div>
+
+  <nav class="tabbar" aria-label="Main">
+    <button data-tab="workout" class="active">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/></svg>
+      <span>Workout</span>
+    </button>
+    <button data-tab="history">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+      <span>History</span>
+    </button>
+    <button data-tab="progress">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M7 15l4-4 3 3 5-6"/></svg>
+      <span>Progress</span>
+    </button>
+    <button data-tab="settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+
+  <!-- Bottom sheet for pickers and details -->
+  <div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+  <section id="sheet" class="sheet hidden" role="dialog" aria-modal="true"></section>
+
+  <script src="app.js"></script>
+</body>
+</html>

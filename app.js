@@ -8,6 +8,7 @@ router.get('/', function(req, res) {
 });
 
 app.use('/assets', express.static(__dirname + '/assets'));
+app.use('/training-tracker', express.static(__dirname + '/training-tracker'));
 app.use('/', router);
 
 app.listen(process.env.port || 3000);
