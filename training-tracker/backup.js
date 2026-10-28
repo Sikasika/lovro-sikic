@@ -406,6 +406,7 @@ async function confirmRestore() {
     return;
   }
   state = next;
+  applyTheme();
   ui.pendingRestore = null;
   ui.progressExercise = null;
   if (ui.stats) ui.stats.perfEx = null;

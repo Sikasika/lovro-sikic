@@ -44,7 +44,7 @@ function defaultState() {
     workouts: [],
     templates: [],
     active: null,
-    settings: { unit: 'kg', rest: 90 },
+    settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6 },
     schemaVersion: SCHEMA_VERSION,
     cardioExercisesAdded: true
   };
@@ -114,6 +114,22 @@ function load() {
 }
 
 let state = load();
+
+/* ---------- Theme ---------- */
+
+const THEME_COLORS = { light: '#eef2f7', dark: '#070b14' };
+/** Apply Settings → Theme: 'system' follows the iPhone appearance, 'light'/'dark' force it. */
+function applyTheme() {
+  const t = state.settings.theme;
+  const root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  // Status bar / browser chrome colour: per-scheme defaults unless a theme is forced.
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    const scheme = (m.getAttribute('media') || '').includes('dark') ? 'dark' : 'light';
+    m.setAttribute('content', THEME_COLORS[t === 'light' || t === 'dark' ? t : scheme]);
+  });
+}
+applyTheme();
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -210,7 +226,7 @@ function haptic() {
 
 /* ---------- Rendering ---------- */
 
-const TITLES = { workout: 'Workout', history: 'History', progress: 'Progress', statistics: 'Statistics', settings: 'Settings' };
+const TITLES = { workout: 'Workout', history: 'History', progress: 'Progress', insights: 'Insights', statistics: 'Statistics', settings: 'Settings' };
 
 function render() {
   $('#title').textContent = TITLES[ui.tab];
@@ -221,6 +237,7 @@ function render() {
   if (ui.tab === 'workout') view.innerHTML = state.active ? renderActive(action) : renderStart();
   if (ui.tab === 'history') view.innerHTML = renderHistory();
   if (ui.tab === 'progress') view.innerHTML = renderProgress();
+  if (ui.tab === 'insights') view.innerHTML = renderInsights();
   if (ui.tab === 'statistics') view.innerHTML = renderStatistics();
   if (ui.tab === 'settings') view.innerHTML = renderSettings();
 }
@@ -1121,6 +1138,12 @@ function renderSettings() {
           <button data-action="unit" data-unit="lb" class="${unit() === 'lb' ? 'on' : ''}" aria-label="Imperial: pounds and miles">lb · mi</button>
         </div>
       </div>
+      <div class="field">
+        <span>Theme</span>
+        <div class="segmented" role="group" aria-label="Theme">
+          ${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-action="theme" data-v="${v}" class="${(state.settings.theme || 'system') === v ? 'on' : ''}" aria-pressed="${(state.settings.theme || 'system') === v}"${v === 'system' ? ' aria-label="Auto: follow the iPhone appearance"' : ''}>${l}</button>`).join('')}
+        </div>
+      </div>
       <label class="field">
         <span>Rest timer (seconds)</span>
         <input type="number" id="rest-seconds" min="0" step="15" inputmode="numeric" value="${state.settings.rest}">
@@ -1674,6 +1697,7 @@ document.addEventListener('click', (ev) => {
       break;
     case 'close-sheet': closeSheet(); break;
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
+    case 'theme': state.settings.theme = el.dataset.v; save(); applyTheme(); render(); break;
     case 'export': exportData(); break;
     case 'restore-confirm': confirmRestore(); break;
     case 'restore-cancel': ui.pendingRestore = null; closeSheet(); toast('Restore cancelled. Nothing was changed.'); break;
@@ -1684,7 +1708,7 @@ document.addEventListener('click', (ev) => {
     case 'reset':
       if (confirm('Erase ALL workouts, templates and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
         keepBeforeRestoreCopy();
-        state = defaultState(); stopRest(); save(); render(); toast('All data erased');
+        state = defaultState(); stopRest(); save(); applyTheme(); render(); toast('All data erased');
       }
       break;
   }

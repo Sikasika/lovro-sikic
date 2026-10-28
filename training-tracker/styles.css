@@ -1,45 +1,65 @@
 /*
-  Colors: warm earth tones from Sanzo Wada's "A Dictionary of Color
-  Combinations" (Seigensha), based on combination #343 —
-  Burnt Sienna #ae5224, Ivory Buff #ebd3a2, Deep Grayish Olive #635a3a —
-  with Vandyke Brown #4b3317, Light Brownish Olive #806e4b,
-  English Red #d96629, Vandyke Red #82241f, Ecru #c2ae93 and
-  Buffy Citrine #96874d. Backgrounds are light/dark tints of these.
+  Colors: sport tones — navy, electric blue and volt, with signal colours.
+  Light: navy text on cool white, electric-blue accent.
+  Dark:  white text on night navy, volt accent (dark text on volt buttons).
+  Theme: follows the iPhone setting, unless Settings → Theme picks Light or Dark
+  (sets data-theme on <html>). Text pairs meet WCAG AA contrast.
 */
 :root {
-  --bg: #f6eedc;            /* Ivory Buff, lightened */
-  --card: #fffaf0;
-  --text: #4b3317;          /* Vandyke Brown */
-  --muted: #806e4b;         /* Light Brownish Olive */
-  --separator: rgba(75, 51, 23, 0.16);
-  --accent: #ae5224;        /* Burnt Sienna */
-  --accent-soft: rgba(174, 82, 36, 0.14);
+  --bg: #eef2f7;
+  --card: #ffffff;
+  --text: #0b1530;          /* navy */
+  --muted: #55617a;
+  --separator: rgba(11, 21, 48, 0.12);
+  --accent: #0b5cff;        /* electric blue */
+  --accent-soft: rgba(11, 92, 255, 0.12);
   --on-accent: #ffffff;
-  --success: #635a3a;       /* Deep Grayish Olive */
-  --success-soft: rgba(99, 90, 58, 0.14);
-  --danger: #82241f;        /* Vandyke Red */
-  --input: #efe3c9;         /* Ivory Buff, softened */
-  --bar: rgba(246, 238, 220, 0.92);
+  --success: #0f8a4b;       /* pitch green */
+  --success-soft: rgba(15, 138, 75, 0.12);
+  --on-success: #ffffff;
+  --danger: #d72638;        /* signal red */
+  --input: #e6ebf2;
+  --bar: rgba(238, 242, 247, 0.92);
   --radius: 12px;
   --tabbar-h: 56px;
-  color-scheme: light dark;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+    --bg: #070b14;            /* night navy */
+    --card: #121a2b;
+    --text: #f2f6fc;
+    --muted: #9aa8c2;
+    --separator: rgba(154, 168, 194, 0.18);
+    --accent: #c8ff2e;        /* volt */
+    --accent-soft: rgba(200, 255, 46, 0.14);
+    --on-accent: #070b14;
+    --success: #2ecc71;
+    --success-soft: rgba(46, 204, 113, 0.16);
+    --on-success: #070b14;
+    --danger: #ff5d6c;
+    --input: #1d2740;
+    --bar: rgba(7, 11, 20, 0.92);
+    color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a130c;          /* Vandyke Brown, darkened */
-    --card: #2a2016;
-    --text: #f3e6cc;        /* Ivory Buff, lightened */
-    --muted: #c2ae93;       /* Ecru */
-    --separator: rgba(235, 211, 162, 0.16);
-    --accent: #d96629;      /* English Red */
-    --accent-soft: rgba(217, 102, 41, 0.2);
-    --on-accent: #1a130c;
-    --success: #96874d;     /* Buffy Citrine */
-    --success-soft: rgba(150, 135, 77, 0.2);
-    --danger: #e2625e;      /* Eugenia Red */
-    --input: #3a2d20;
-    --bar: rgba(26, 19, 12, 0.92);
+  :root:not([data-theme="light"]) {
+    --bg: #070b14;            /* night navy */
+    --card: #121a2b;
+    --text: #f2f6fc;
+    --muted: #9aa8c2;
+    --separator: rgba(154, 168, 194, 0.18);
+    --accent: #c8ff2e;        /* volt */
+    --accent-soft: rgba(200, 255, 46, 0.14);
+    --on-accent: #070b14;
+    --success: #2ecc71;
+    --success-soft: rgba(46, 204, 113, 0.16);
+    --on-success: #070b14;
+    --danger: #ff5d6c;
+    --input: #1d2740;
+    --bar: rgba(7, 11, 20, 0.92);
+    color-scheme: dark;
   }
 }
 
@@ -246,7 +266,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
   font-size: 18px;
   font-weight: 700;
 }
-.done .check { background: var(--success); color: #fff; }
+.done .check { background: var(--success); color: var(--on-success); }
 .ex-actions { display: flex; justify-content: space-between; padding: 6px 16px 10px; }
 
 /* ---------- Rest timer ---------- */

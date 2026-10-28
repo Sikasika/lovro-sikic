@@ -1,24 +1,29 @@
-/* Statistics tab. Builds on the tokens and components in styles.css.
-   Activity colors are from Sanzo Wada's "A Dictionary of Color Combinations":
-   Burnt Sienna, Dark Medici Blue, Khaki, Purple Drab (light) and
-   English Red, Salvia Blue, Yellow Ocher, Light Brown Drab (dark).
-   All are at least 3:1 against the card background. */
+/* Statistics and Insights. Builds on the tokens and components in styles.css.
+   Activity colours (sport tones): weights blue/volt, cardio orange, sports green,
+   other violet. All are at least 3:1 against the card background in both themes. */
 :root {
-  --heat-weights: #ae5224;
-  --heat-cardio: #547076;
-  --heat-sports: #bc892b;
-  --heat-other: #84565b;
+  --heat-weights: #0b5cff;
+  --heat-cardio: #e8590c;
+  --heat-sports: #0f8a4b;
+  --heat-other: #7a3ff2;
   --heat-base: var(--card);
   --cell: 14px;
   --cell-gap: 3px;
 }
 
+:root[data-theme="dark"] {
+    --heat-weights: #c8ff2e;
+    --heat-cardio: #ff8a3d;
+    --heat-sports: #2fd38a;
+    --heat-other: #b794ff;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --heat-weights: #d96629;
-    --heat-cardio: #97acc8;
-    --heat-sports: #e2b540;
-    --heat-other: #b59392;
+  :root:not([data-theme="light"]) {
+    --heat-weights: #c8ff2e;
+    --heat-cardio: #ff8a3d;
+    --heat-sports: #2fd38a;
+    --heat-other: #b794ff;
   }
 }
 
@@ -143,3 +148,37 @@
 .dow-bar { width: 70%; max-width: 32px; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--accent); }
 .dow-val { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dow-lbl { font-size: 11px; color: var(--muted); }
+
+/* ---------- Insights ---------- */
+.insight-cards { display: grid; gap: 10px; margin-top: 12px; }
+.insight-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+.insight-icon { font-size: 22px; line-height: 1.2; flex: none; }
+.insight-title { font-weight: 600; }
+.insight-text { font-size: 14px; color: var(--muted); margin-top: 2px; }
+.compare.report th, .compare.report td { padding: 8px 4px; font-size: 14px; }
+.compare.report td { white-space: nowrap; }          /* numbers never break */
+.compare.report tbody th { width: 100%; }            /* labels take the rest and wrap between words */
+.compare.report thead th { font-size: 11px; }
+.compare.report th:first-child { padding-left: 0; }
+.compare.report td:last-child, .compare.report thead th:last-child { padding-right: 0; }
+.compare.report .chg .pct { display: block; font-size: 12px; }
+/* On wider screens the change fits on one line. */
+@media (min-width: 430px) {
+  .compare.report .chg .pct { display: inline; }
+  .compare.report .chg .pct::before { content: ' · '; }
+}
+.chg { font-weight: 600; }
+.chg.up { color: var(--success); }
+.chg.down { color: var(--danger); }
+.chart .bar-solid { fill: var(--accent); }
+.chart .bar-partial { fill: var(--accent); opacity: 0.4; }
+.plateau-flag { border-left: 3px solid var(--heat-cardio); padding-left: 10px; }
+.reps-change { font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -35,6 +35,36 @@
    - Cardio time: time logged on cardio sets only.
    - A personal record needs an earlier session to beat: the first
      session of an exercise sets the baseline, not a record.
+   - Activity type of an exercise entry comes from its category:
+     Cardio → cardio, Sports → sports, Other → other, anything else
+     (muscle groups) → weights (strength).
+
+   Insights (comparisons and trends)
+   - Weeks run Monday–Sunday. A week is complete once it has ended.
+     The current week is never compared as if it were complete: it is
+     compared with the same days (Monday up to today's weekday) of the
+     previous week.
+   - Change = current − previous. A percentage is shown only when the
+     previous value is above zero ("new" when it was zero), and only for
+     quantities that were actually recorded in both periods.
+   - Strength sessions / cardio sessions / sports sessions: workouts that
+     include at least one exercise of that type (a mixed workout counts
+     for each type it contains).
+   - Cardio distance is reported per exercise (activity), never summed
+     across activities. Cardio time is the time logged on cardio sets.
+   - Progression metric of a strength exercise: estimated 1RM when it has
+     sets of 1–12 reps with weight, else heaviest weight, else most reps
+     (bodyweight exercises).
+   - Recent vs earlier: the best value of the most recent sessions
+     compared with the best value of the same number of sessions just
+     before them (up to 3 each; needs at least 4 sessions). Cardio uses the
+     average of sessions instead of the best.
+   - Possible plateau: in the chosen period there are at least 3 sessions
+     spread over at least 14 days, there are at least 2 earlier sessions,
+     and the best value in the period is not more than 1% above the best
+     earlier value. It describes logged data only.
+   - Reps at comparable weights: working sets at exactly the same weight
+     in at least 2 sessions; first vs latest session's most reps.
    ========================================================= */
 
 const SCHEMA_VERSION = 2;
@@ -335,4 +365,123 @@ function recordEvents(items) {
     }
   }
   return events.sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+/* ---------- Activity types ---------- */
+
+/** Activity type of one exercise entry, from the exercise's category (shared by Statistics and Insights). */
+function entryType(entry) {
+  const ex = exById(entry.exerciseId);
+  if (!ex) return 'other';
+  const cat = String(ex.category || '').trim().toLowerCase();
+  if (cat === 'cardio') return 'cardio';
+  if (cat === 'sports' || cat === 'sport') return 'sports';
+  if (cat === 'other' || cat === '') return 'other';
+  return 'weights';
+}
+
+/* ---------- Insights: weeks, comparisons and trends ---------- */
+
+/** Monday-start week `offset` weeks before the current one. `e` is exclusive. */
+function weekRange(today, offset = 0) {
+  const s = sAddDays(startOfWeek(today), -7 * offset);
+  const e = sAddDays(s, 7);
+  return { s, e, complete: e <= today, days: Math.min(7, sDaysBetween(s, today) + 1) };
+}
+
+const itemsBetween = (items, s, e) => items.filter((it) => it.day >= s && it.day < e);
+
+/** Change from prev to cur; pct only when prev > 0. Null when either value is missing. */
+function periodChange(cur, prev) {
+  if (cur == null || prev == null) return null;
+  const abs = cur - prev;
+  return { abs, pct: prev > 0 ? (abs / prev) * 100 : null };
+}
+
+/** Totals for one period of completed workouts (see the Insights rules above). */
+function periodReport(items) {
+  const sum = summarizeWorkouts(items);
+  const has = (it, type) => it.entries.some((e) => entryType(e) === type);
+  const distances = new Map();   // cardio exerciseId -> metres logged
+  const categories = new Map();  // category -> workouts that included it
+  const cardioItems = items.filter((it) => has(it, 'cardio'));
+  for (const it of items) {
+    for (const e of it.entries) {
+      if (!cardioKindOf(e.exerciseId)) continue;
+      const d = completedSets(e).reduce((a, st) => a + (num(st.distance) || 0), 0);
+      if (d > 0) distances.set(e.exerciseId, (distances.get(e.exerciseId) || 0) + d);
+    }
+    new Set(it.entries.map((e) => catOf(exById(e.exerciseId)))).forEach((c) => categories.set(c, (categories.get(c) || 0) + 1));
+  }
+  return {
+    workouts: items.length,
+    strength: items.filter((it) => has(it, 'weights')).length,
+    cardio: cardioItems.length,
+    sports: items.filter((it) => has(it, 'sports')).length,
+    cardioSec: sum.cardioSec,
+    cardioUntimed: cardioItems.length > 0 && sum.cardioSec == null,
+    volume: sum.volume,
+    distances,
+    categories
+  };
+}
+
+/** The metric used for strength progression of an exercise (see rules above). */
+function progressionMetric(sessions) {
+  if (sessions.some((s) => s.v.e1rm != null)) return 'e1rm';
+  if (sessions.some((s) => s.v.weight != null)) return 'weight';
+  return sessions.some((s) => s.v.reps != null) ? 'reps' : null;
+}
+
+/** Best (or, with average = true, mean) of the latest sessions vs the same number just before them. */
+function recentVsEarlier(sessions, metric, { n = 3, average = false } = {}) {
+  const withV = sessions.filter((s) => s.v[metric] != null);
+  if (withV.length < 4) return null;
+  const k = Math.min(n, Math.floor(withV.length / 2));
+  const recent = withV.slice(-k), earlier = withV.slice(-2 * k, -k);
+  const pick = (list) => {
+    const vals = list.map((s) => s.v[metric]);
+    if (average) return vals.reduce((a, b) => a + b, 0) / vals.length;
+    return LOWER_IS_BETTER.has(metric) ? Math.min(...vals) : Math.max(...vals);
+  };
+  return { k, recent: pick(recent), earlier: pick(earlier), recentFrom: recent[0].date, recentTo: recent[k - 1].date, earlierFrom: earlier[0].date, earlierTo: earlier[k - 1].date };
+}
+
+const PLATEAU_MIN_SESSIONS = 3;
+const PLATEAU_MIN_SPAN_DAYS = 14;
+const PLATEAU_MIN_EARLIER = 2;
+const PLATEAU_IMPROVEMENT = 0.01;
+
+/**
+ * Possible plateau check for one exercise over the last `weeks` weeks (see rules above).
+ * status: 'insufficient' | 'improving' | 'possible-plateau'.
+ */
+function plateauCheck(sessions, metric, weeks, today) {
+  const from = sAddDays(today, -7 * weeks + 1);
+  const withV = sessions.filter((s) => s.v[metric] != null);
+  const recent = withV.filter((s) => s.it.day >= from);
+  const earlier = withV.filter((s) => s.it.day < from);
+  const base = { from, recentCount: recent.length, earlierCount: earlier.length };
+  const span = recent.length ? sDaysBetween(recent[0].it.day, recent[recent.length - 1].it.day) : 0;
+  if (recent.length < PLATEAU_MIN_SESSIONS || span < PLATEAU_MIN_SPAN_DAYS || earlier.length < PLATEAU_MIN_EARLIER) return { status: 'insufficient', ...base };
+  const best = (list) => Math.max(...list.map((s) => s.v[metric]));
+  const bestRecent = best(recent), bestEarlier = best(earlier);
+  return { status: bestRecent > bestEarlier * (1 + PLATEAU_IMPROVEMENT) ? 'improving' : 'possible-plateau', bestRecent, bestEarlier, ...base };
+}
+
+/** Working sets at the same weight in at least 2 sessions: first vs latest session's most reps (top 3 weights). */
+function repsAtWeights(sessions) {
+  const byW = new Map();
+  for (const s of sessions) {
+    const top = new Map();
+    s.best.filter((x) => x.w > 0 && x.r > 0).forEach((x) => {
+      const w = Math.round(x.w * 100) / 100;
+      top.set(w, Math.max(top.get(w) || 0, x.r));
+    });
+    top.forEach((r, w) => { if (!byW.has(w)) byW.set(w, []); byW.get(w).push({ date: s.date, reps: r }); });
+  }
+  return [...byW].filter(([, list]) => list.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length || b[0] - a[0])
+    .slice(0, 3)
+    .map(([weight, list]) => ({ weight, sessions: list.length, first: list[0], last: list[list.length - 1] }));
 }

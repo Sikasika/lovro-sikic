@@ -50,16 +50,7 @@ const fmtMin = (min) => (min == null ? 'Unknown duration' : fmtDuration(min * 60
 
 /* ---------- Data ---------- */
 
-/** Activity type of one exercise entry, from the exercise's category. */
-function entryType(entry) {
-  const ex = exById(entry.exerciseId);
-  if (!ex) return 'other';
-  const cat = String(ex.category || '').trim().toLowerCase();
-  if (cat === 'cardio') return 'cardio';
-  if (cat === 'sports' || cat === 'sport') return 'sports';
-  if (cat === 'other' || cat === '') return 'other';
-  return 'weights';
-}
+// entryType() (activity type of an exercise entry) lives in calc.js, shared with Insights.
 
 /**
  * Completed workouts (shared rules in calc.js) plus the activity types each
