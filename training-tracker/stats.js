@@ -262,7 +262,6 @@ function openDaySheet(key) {
               ${time(it.start)}${it.min != null ? ` – ${time(new Date(it.w.end))}` : ''} · ${fmtMin(it.min)} · ${workoutSetCount(it.w)} set${workoutSetCount(it.w) === 1 ? '' : 's'}
               ${workoutVolume(it.w) ? ` · ${fmtWeight(workoutVolume(it.w))} ${esc(unit())} volume` : ''}
             </div>
-            ${it.w.location ? `<div class="day-meta">📍 ${esc(it.w.location)}</div>` : ''}
           </div>
           ${it.entries.map((e) => `
             <div class="detail-set day-ex"><span>${esc(exName(e.exerciseId))} ${catTag(e.exerciseId)}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}

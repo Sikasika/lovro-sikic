@@ -15,8 +15,10 @@ https://sikasika.github.io/lovro-sikic/training-tracker/ (locally: `node app.js`
 It then launches full-screen like a native app and works offline.
 
 Features:
-- Workout: templates with planned sets (weight/reps or distance/time), warm-up/working/drop
-  sets, exercise notes, supersets, rest timer, "last time" values, location
+- Workout: Start Workout → pick a template or recent workout → review → Begin (the clock
+  starts only then), or start empty. Live session with a sticky bar (clock, progress,
+  rest timer, Finish), large ✓ targets, "previous" column, planned targets, warm-up/working/drop
+  sets, exercise notes, supersets. Finish shows a summary before saving.
 - History: workout details, edit any past workout, repeat, save as template
 - Progress: streaks, this week vs last week, recent records, per-exercise chart
 - Statistics: activity heatmap, summaries, frequency, performance charts and records,
@@ -25,7 +27,8 @@ Features:
   archive), backup export, validated restore with undo
 
 Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
-calculations), `backup.js` (backup format and restore), `app.js` (screens), `stats.js`
+calculations), `backup.js` (backup format and restore), `workout.js` (Workout tab: start,
+live session, finishing, rest timer), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 
 Releasing a change: bump `CACHE` in `training-tracker/sw.js` (and add any new file to

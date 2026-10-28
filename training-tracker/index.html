@@ -28,13 +28,12 @@
 
   <main id="view" aria-live="polite"></main>
 
-  <!-- Rest timer pill -->
-  <div id="rest" class="rest hidden" role="timer">
-    <button id="rest-minus" aria-label="Subtract 15 seconds">−15</button>
-    <span id="rest-time">1:30</span>
-    <button id="rest-plus" aria-label="Add 15 seconds">+15</button>
-    <button id="rest-skip" aria-label="Stop rest timer">✕</button>
-  </div>
+  <!-- Shown on other tabs while a workout is in progress (workout.js) -->
+  <button type="button" id="live-bar" class="live-bar hidden" data-action="continue-workout">
+    <span class="live-dot" aria-hidden="true"></span>
+    <span class="lb-text"><span id="lb-name" class="truncate"></span><span id="lb-time"></span></span>
+    <span class="lb-go">Continue ›</span>
+  </button>
 
   <nav class="tabbar" aria-label="Main">
     <button data-tab="workout" class="active">
@@ -69,6 +68,7 @@
 
   <script src="calc.js"></script>
   <script src="backup.js"></script>
+  <script src="workout.js"></script>
   <script src="app.js"></script>
   <script src="stats.js"></script>
   <script src="insights.js"></script>

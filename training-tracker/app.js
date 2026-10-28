@@ -138,7 +138,8 @@ function save() {
   }
 }
 
-const ui = { pendingRestore: null, tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null };
+const ui = { pendingRestore: null, tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null,
+  review: null, savedId: null, wkScroll: 0, tapGuardUntil: 0 }; // Workout tab state: see workout.js
 
 /* ---------- Helpers ---------- */
 
@@ -234,72 +235,28 @@ function render() {
   const view = $('#view');
   const action = $('#topbar-action');
   action.innerHTML = '';
-  if (ui.tab === 'workout') view.innerHTML = state.active ? renderActive(action) : renderStart();
+  document.body.classList.toggle('in-session', ui.tab === 'workout' && !!state.active);
+  if (ui.tab === 'workout') {
+    view.innerHTML = state.active ? renderActive(action) : renderStart();
+    if (state.active) syncWorkoutStatus();
+  }
   if (ui.tab === 'history') view.innerHTML = renderHistory();
   if (ui.tab === 'progress') view.innerHTML = renderProgress();
   if (ui.tab === 'insights') view.innerHTML = renderInsights();
   if (ui.tab === 'statistics') view.innerHTML = renderStatistics();
   if (ui.tab === 'settings') view.innerHTML = renderSettings();
+  updateLiveBar();
 }
 
-/* ----- Workout tab: start screen ----- */
-
-function renderStart() {
-  const recent = state.workouts.slice(0, 3);
-  return `
-    <div class="card card-pad" style="margin-top:12px">
-      <div style="font-weight:600;font-size:20px">Ready to train?</div>
-      <div class="sub" style="color:var(--muted);margin:4px 0 14px">Start an empty workout and add exercises as you go.</div>
-      <button class="btn" data-action="start">Start Empty Workout</button>
-    </div>
-
-    <div class="section-title">My templates</div>
-    <div class="template-grid">
-      ${state.templates.map((t) => `
-        <div class="template-tile" role="button" tabindex="0" data-action="start-template" data-id="${t.id}">
-          <button class="tile-edit" data-action="edit-template" data-id="${t.id}" aria-label="Edit ${esc(t.name)}">•••</button>
-          <div class="tile-name">${esc(t.name)}</div>
-          <div class="tile-sub">${t.entries.length} exercise${t.entries.length === 1 ? '' : 's'}</div>
-          <div class="tile-ex">${esc(t.entries.map((e) => exName(e.exerciseId)).join(', ') || 'No exercises yet')}</div>
-          ${t.location ? `<div class="tile-loc">📍 ${esc(t.location)}</div>` : ''}
-        </div>`).join('')}
-      <button class="template-tile new" data-action="new-template">
-        <span class="plus">＋</span>
-        <span>New Template</span>
-      </button>
-    </div>
-
-    ${recent.length ? `
-      <div class="section-title">Repeat a recent workout</div>
-      <div class="card">
-        ${recent.map((w) => `
-          <button class="list-item" data-action="repeat" data-id="${w.id}">
-            <div class="grow">
-              <div class="truncate">${esc(w.name)}</div>
-              <div class="sub truncate">${esc(w.entries.map((e) => exName(e.exerciseId)).join(', ') || 'No exercises')}</div>
-            </div>
-            <span class="sub">${fmtDate(w.start, { day: 'numeric', month: 'short' })}</span>
-            <span class="chev">›</span>
-          </button>`).join('')}
-      </div>` : ''}
-  `;
-}
+/* The Workout tab (start screen, live workout, finishing) is in workout.js. */
 
 /* ----- Templates ----- */
 
-/** Places used before, most recent first, for location suggestions. */
-function knownLocations() {
-  const all = [state.active?.location, ...state.workouts.map((w) => w.location), ...state.templates.map((t) => t.location)];
-  return [...new Set(all.filter(Boolean).map((l) => l.trim()).filter(Boolean))];
-}
-
-function locationOptions() {
-  return `<datalist id="locations">${knownLocations().map((l) => `<option value="${esc(l)}">`).join('')}</datalist>`;
-}
-
 /*
-  Template format: { id, name, location, entries: [{ exerciseId, sets: [{ weight, reps }] }] }
+  Template format: { id, name, entries: [{ exerciseId, sets: [{ weight, reps }] }] }
   where weight is a target in kg (number) or '' and reps is a target number or ''.
+  Templates and workouts saved by older versions may also have a `location`; it is
+  kept as it is (no longer shown or asked for).
   Templates saved by older versions store sets as a count ({ sets: 3 }); they are read
   as that many empty sets and only rewritten in the new format when edited and saved.
 */
@@ -336,8 +293,8 @@ function defaultPlannedSets(exerciseId) {
 /** Start editing a copy of a template (or a new one); the original is untouched until Save. */
 function beginTemplateDraft(t) {
   ui.draft = t
-    ? { id: t.id, name: t.name || '', location: t.location || '', entries: t.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e), ...entryExtras(e) })) }
-    : { id: null, name: '', location: '', entries: [] };
+    ? { id: t.id, name: t.name || '', entries: t.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e), ...entryExtras(e) })) }
+    : { id: null, name: '', entries: [] };
   ui.draftOriginal = JSON.stringify(ui.draft);
 }
 
@@ -365,9 +322,7 @@ function openTemplateEditor() {
     <div class="sheet-body template-editor">
       <div class="card">
         <label class="field"><span>Name</span><input id="draft-name" value="${esc(d.name)}" placeholder="e.g. Push Day" autocomplete="off"></label>
-        <label class="field"><span>Location</span><input id="draft-location" list="locations" value="${esc(d.location)}" placeholder="Optional" autocomplete="off"></label>
       </div>
-      ${locationOptions()}
 
       <div class="section-title">Exercises</div>
       ${editorExerciseCards(d.entries, 'draft')}
@@ -468,10 +423,11 @@ function editEntries(entries, op, ei, si, dir) {
 
 function saveTemplate() {
   const d = ui.draft;
+  const old = state.templates.find((t) => t.id === d.id);
   const tpl = {
     id: d.id || uid(),
     name: d.name.trim() || 'My Template',
-    location: (d.location || '').trim(),
+    ...(old?.location ? { location: old.location } : {}), // kept from older versions
     entries: normalizeSupersets(d.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e), ...entryExtras(e) })))
   };
   const i = state.templates.findIndex((t) => t.id === d.id);
@@ -487,7 +443,7 @@ function saveTemplate() {
 /** Save a workout (in progress or finished) as a new template. */
 function saveAsTemplate(w) {
   if (!w.entries.length) { alert('Add at least one exercise first.'); return; }
-  state.templates.push({ id: uid(), name: w.name, location: w.location || '', entries: entriesToTemplate(w.entries) });
+  state.templates.push({ id: uid(), name: w.name, entries: entriesToTemplate(w.entries) });
   save();
   toast(`Saved “${w.name}” as a template`);
 }
@@ -614,86 +570,6 @@ function openSetMenu(ctx, ei, si) {
     </div>`);
 }
 
-/* ----- Workout tab: active workout ----- */
-
-function renderActive(action) {
-  const w = state.active;
-  action.innerHTML = `<button class="btn small" data-action="finish">Finish</button>`;
-  return `
-    <div class="card card-pad" style="margin-top:8px">
-      <div class="workout-head">
-        <input id="workout-name" value="${esc(w.name)}" aria-label="Workout name" autocomplete="off">
-        <span class="elapsed" id="elapsed">${fmtDuration(Date.now() - new Date(w.start))}</span>
-      </div>
-      <div class="location-row">
-        <span aria-hidden="true">📍</span>
-        <input id="workout-location" list="locations" value="${esc(w.location)}" placeholder="Add location" aria-label="Location" autocomplete="off">
-      </div>
-      ${locationOptions()}
-    </div>
-
-    ${(() => { const letters = supersetLetters(w.entries); return w.entries.map((entry, i) => renderEntry(entry, i, letters)).join(''); })()}
-
-    <div class="btn-row" style="margin-top:16px">
-      <button class="btn secondary" data-action="add-exercise">＋ Add Exercise</button>
-    </div>
-
-    <div class="section-title">Notes</div>
-    <div class="card"><textarea class="notes" id="workout-notes" placeholder="How did it feel?">${esc(w.notes)}</textarea></div>
-
-    <div class="btn-row"><button class="btn secondary" data-action="save-active-template">Save as Template</button></div>
-    <div class="btn-row"><button class="btn danger" data-action="discard">Discard Workout</button></div>
-  `;
-}
-
-function renderEntry(entry, i, letters = []) {
-  const ck = cardioKindOf(entry.exerciseId);
-  const last = lastEntryFor(entry.exerciseId);
-  const lastSets = last ? completedSets(last) : [];
-  const labels = setLabels(entry.sets);
-  const planned = entry.sets.some((s) => s.target);
-  const ss = letters[i];
-  const ssCont = ss && letters[i - 1] === ss;
-  return `
-    <div class="card exercise-card${ss ? ' superset' : ''}${ssCont ? ' ss-cont' : ''}" style="margin-top:${ssCont ? 4 : 12}px" data-entry="${i}">
-      <div class="ex-head">
-        <span>${ss ? `<span class="ss-badge">Superset ${ss}</span>` : ''}<span class="ex-name">${esc(exName(entry.exerciseId))}</span>${catTag(entry.exerciseId)}</span>
-        <button class="link" data-action="entry-menu" data-entry="${i}" aria-label="Exercise options">•••</button>
-      </div>
-      ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${esc(exName(entry.exerciseId))}"></div>` : ''}
-      ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets, ck))}${last.note ? ` · Note: “${esc(last.note)}”` : ''}</div>` : ''}
-      ${planned ? `<div class="ex-plan">Plan: ${esc(entry.sets.map((st, j) => `${labels[j] === String(Number(labels[j])) ? '' : `${labels[j]} `}${st.target ? setValueText(st.target, ck) : '–'}`).join(', '))}</div>` : ''}
-      ${ck ? `<div class="ex-last">Distance in ${distanceUnit(ck)}, time in minutes (25 or 25.5) or mm:ss. Leave blank what you didn't measure.</div>` : ''}
-      <table class="sets">
-        <thead><tr><th>Set</th>${ck ? `<th>${distanceUnit(ck)}</th><th>Time</th>` : `<th>${esc(unit())}</th><th>Reps</th>`}<th>✓</th></tr></thead>
-        <tbody>
-          ${entry.sets.map((s, j) => {
-            // Placeholders: the template's plan if there is one (accent colour), else last time's values.
-            const plan = s.target;
-            const src = plan || lastSets[j];
-            const ph = plan ? ' planned' : '';
-            const t = setType(s);
-            return `
-            <tr class="${s.done ? 'done' : ''} type-${t}" data-set="${j}">
-              <td class="set-num"><button class="set-label ${t}" data-action="set-menu" data-ctx="active" data-entry="${i}" data-set="${j}" aria-label="${t === 'working' ? `Set ${labels[j]}` : SET_TYPE_INFO[t].label}. Change type, move or delete">${labels[j]}</button></td>
-              ${ck ? `
-              <td><input class="${ph}" inputmode="decimal" data-field="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(s.distance), ck))}" placeholder="${plan && num(plan.distance) != null ? esc(inputDistance(num(plan.distance), ck)) : '–'}" aria-label="Distance (${distanceUnit(ck)})"></td>
-              <td><input class="${ph}" inputmode="decimal" data-field="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(s.duration))}" placeholder="${plan && num(plan.duration) != null ? esc(inputClock(plan.duration)) : 'min'}" aria-label="Time, minutes or mm:ss"></td>` : `
-              <td><input class="${ph}" inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(s.weight)))}" placeholder="${esc(inputWeight(num(src?.weight)))}" aria-label="Weight (${esc(unit())})${plan ? ', planned ' + esc(inputWeight(num(plan.weight))) : ''}"></td>
-              <td><input class="${ph}" inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${num(src?.reps) ?? ''}" aria-label="Reps${plan && num(plan.reps) != null ? ', planned ' + num(plan.reps) : ''}"></td>`}
-              <td><button class="check" data-action="toggle-set" data-entry="${i}" data-set="${j}" aria-label="Mark set done">✓</button></td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-      <div class="ex-actions">
-        <button class="link" data-action="add-set" data-entry="${i}">＋ Add Set</button>
-        ${entry.sets.length > 1 ? `<button class="link danger" data-action="remove-set" data-entry="${i}">Remove Set</button>` : ''}
-      </div>
-    </div>
-  `;
-}
-
 /* ----- History tab ----- */
 
 function renderHistory() {
@@ -714,7 +590,6 @@ function renderHistory() {
           <div class="grow">
             <div class="truncate">${esc(w.name)}</div>
             <div class="sub">${fmtDate(w.start)} · ${workoutDurationText(w)} · ${workoutSetCount(w)} sets</div>
-            ${w.location ? `<div class="sub truncate">📍 ${esc(w.location)}</div>` : ''}
           </div>
           <span class="chev">›</span>
         </button>`).join('')}
@@ -773,7 +648,7 @@ function renderWorkoutDetail(w) {
         <div class="stat"><div class="num">${workoutSetCount(w)}</div><div class="lbl">Sets</div></div>
         <div class="stat"><div class="num">${fmtWeight(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
       </div>
-      <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${w.location ? ` · 📍 ${esc(w.location)}` : ''}</div>
+      <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
       ${(() => {
         const letters = supersetLetters(w.entries);
         return w.entries.map((e, i) => `
@@ -806,7 +681,6 @@ function beginWorkoutEdit(w) {
   ui.wdraft = {
     id: w.id,
     name: w.name || '',
-    location: w.location || '',
     notes: w.notes || '',
     date: isNaN(start) ? '' : dateInputValue(start),
     startTime: isNaN(start) ? '' : timeInputValue(start),
@@ -874,9 +748,7 @@ function openWorkoutEditor() {
         <label class="field"><span>Start time</span><input type="time" id="wedit-start" value="${esc(d.startTime)}"></label>
         <label class="field"><span>End time</span><input type="time" id="wedit-end" value="${esc(d.endTime)}"></label>
         <div class="field wedit-duration" id="wedit-duration" aria-live="polite">${esc(workoutDraftDurationText())}</div>
-        <label class="field"><span>Location</span><input id="wedit-location" list="locations" value="${esc(d.location)}" placeholder="Optional" autocomplete="off"></label>
       </div>
-      ${locationOptions()}
 
       <div class="section-title">Exercises</div>
       ${editorExerciseCards(d.entries, 'wedit')}
@@ -928,7 +800,6 @@ function saveWorkoutEdit() {
   const updated = {
     ...original,
     name: d.name.trim() || original.name || 'Workout',
-    location: d.location.trim(),
     notes: d.notes,
     start: times.start.toISOString(),
     entries
@@ -1402,116 +1273,6 @@ function saveExerciseDraft() {
   toast(d.id ? 'Exercise updated' : 'Exercise added');
 }
 
-/* ---------- Workout actions ---------- */
-
-/**
- * Start a workout from nothing, from a template (sets pre-filled with its targets),
- * or from a past workout to repeat (same exercises and set counts, empty values).
- */
-function startWorkout(from) {
-  const isTemplate = !!from && state.templates.includes(from);
-  const setCount = (e) => (completedSets(e).length || e.sets.length);
-  // New objects only, so the workout never changes the template it came from.
-  // Template: targets are kept separately as each set's plan; the values start empty.
-  // Repeat: same set types and set count, empty values.
-  const setsFor = (e) => {
-    if (isTemplate) {
-      return templateSets(e).map((p) => {
-        const target = plannedValues(p);
-        return { weight: '', reps: '', ...typeField(p), ...(target ? { target } : {}), done: false };
-      });
-    }
-    const src = completedSets(e).length ? completedSets(e) : e.sets;
-    return (src.length ? src : [{}]).map((p) => ({ weight: '', reps: '', ...typeField(p), done: false }));
-  };
-  state.active = {
-    id: uid(),
-    name: from ? from.name : defaultWorkoutName(),
-    location: from?.location || '',
-    templateId: isTemplate ? from.id : null,
-    start: new Date().toISOString(),
-    notes: '',
-    entries: from ? normalizeSupersets(from.entries.map((e) => ({ exerciseId: e.exerciseId, sets: setsFor(e), ...entryExtras(e, { keepNote: isTemplate }) }))) : []
-  };
-  save();
-  ui.tab = 'workout';
-  closeSheet();
-  render();
-}
-
-function addExerciseToWorkout(exerciseId) {
-  const last = lastEntryFor(exerciseId);
-  const count = last ? completedSets(last).length : 3;
-  state.active.entries.push({ exerciseId, sets: Array.from({ length: Math.max(1, count) }, () => ({ weight: '', reps: '', done: false })) });
-  save();
-  closeSheet();
-  render();
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-}
-
-function finishWorkout() {
-  const w = state.active;
-  // Fill blank weight/reps of checked sets from their placeholders: the template's plan,
-  // else last session. Cardio distance and time are never filled in: only what was measured is kept.
-  w.entries.forEach((entry) => {
-    const isCardio = !!cardioKindOf(entry.exerciseId);
-    const lastSets = (() => { const l = lastEntryFor(entry.exerciseId); return l ? completedSets(l) : []; })();
-    entry.sets.forEach((s, j) => {
-      if (s.done && !isCardio) {
-        const src = s.target || lastSets[j];
-        if (s.weight === '' && num(src?.weight) != null) s.weight = num(src.weight);
-        if (s.reps === '' && num(src?.reps) != null) s.reps = String(num(src.reps));
-      }
-    });
-    entry.sets = entry.sets.filter((s) => s.done);
-    if (typeof entry.note === 'string') { entry.note = entry.note.trim(); if (!entry.note) delete entry.note; }
-  });
-  w.entries = normalizeSupersets(w.entries.filter((e) => e.sets.length));
-  if (!w.entries.length) {
-    if (!confirm('No sets are checked off. Discard this workout?')) return;
-    state.active = null;
-  } else {
-    w.end = new Date().toISOString();
-    state.workouts.unshift(w);
-    state.workouts.sort((a, b) => new Date(b.start) - new Date(a.start));
-    state.active = null;
-    toast(`Workout saved · ${workoutSetCount(w)} sets 💪`);
-  }
-  stopRest();
-  save();
-  render();
-}
-
-/* ---------- Rest timer ---------- */
-
-let restInterval = null;
-
-function startRest(seconds = state.settings.rest) {
-  if (!seconds) return;
-  ui.restEnd = Date.now() + seconds * 1000;
-  $('#rest').classList.remove('hidden');
-  tickRest();
-  clearInterval(restInterval);
-  restInterval = setInterval(tickRest, 250);
-}
-
-function tickRest() {
-  const left = ui.restEnd - Date.now();
-  if (left <= 0) {
-    stopRest();
-    haptic();
-    toast('Rest over. Next set! 🔔');
-    return;
-  }
-  $('#rest-time').textContent = fmtDuration(left + 999);
-}
-
-function stopRest() {
-  clearInterval(restInterval);
-  ui.restEnd = null;
-  $('#rest').classList.add('hidden');
-}
-
 /* ---------- Backup ---------- */
 
 // Backup export, validation and restore live in backup.js.
@@ -1520,7 +1281,18 @@ function stopRest() {
 
 document.addEventListener('click', (ev) => {
   const tab = ev.target.closest('.tabbar button');
-  if (tab) { ui.tab = tab.dataset.tab; closeSheet(); render(); window.scrollTo(0, 0); return; }
+  if (tab) {
+    // The live workout keeps its scroll position while you look at other tabs.
+    if (ui.tab === 'workout' && state.active) ui.wkScroll = window.scrollY;
+    ui.tab = tab.dataset.tab;
+    closeSheet();
+    render();
+    window.scrollTo(0, ui.tab === 'workout' && state.active ? ui.wkScroll : 0);
+    return;
+  }
+  // Right after the screen changes (workout started, saved or discarded), ignore taps on
+  // the page for a moment so the second tap of a double tap can't hit the new screen.
+  if (performance.now() < ui.tapGuardUntil && ev.target.closest('#view')) return;
 
   const el = ev.target.closest('[data-action]');
   if (!el) return;
@@ -1538,14 +1310,6 @@ document.addEventListener('click', (ev) => {
   }
 
   switch (action) {
-    case 'start': startWorkout(); break;
-    case 'repeat': {
-      if (state.active && !confirm('Replace the workout in progress?')) return;
-      startWorkout(state.workouts.find((w) => w.id === id));
-      break;
-    }
-    case 'finish': finishWorkout(); break;
-    case 'start-template': startWorkout(state.templates.find((t) => t.id === id)); break;
     case 'new-template':
       beginTemplateDraft(null);
       openTemplateEditor();
@@ -1573,10 +1337,6 @@ document.addEventListener('click', (ev) => {
     case 'wedit-add-exercise': openExercisePicker('wedit'); break;
     case 'back-to-wedit': openWorkoutEditor(); break;
     case 'save-history-template': saveAsTemplate(state.workouts.find((w) => w.id === id)); break;
-    case 'discard':
-      if (confirm('Discard this workout? This cannot be undone.')) { state.active = null; stopRest(); save(); render(); }
-      break;
-    case 'add-exercise': openExercisePicker('pick'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
     case 'pick-exercise':
       if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: id, sets: newLoggedSets() }); openWorkoutEditor(); }
       else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: defaultPlannedSets(id) }); openTemplateEditor(); }
@@ -1625,52 +1385,6 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'manage-exercises': ui.exm = { q: '', cat: 'all' }; openExerciseManager(); break;
-    case 'toggle-set': {
-      const set = state.active.entries[ei].sets[si];
-      set.done = !set.done;
-      el.closest('tr').classList.toggle('done', set.done);
-      save();
-      // In a superset, rest only after the round's last exercise.
-      if (set.done) { haptic(); if (isLastInSuperset(state.active.entries, ei)) startRest(); }
-      break;
-    }
-    case 'add-set': {
-      const sets = state.active.entries[ei].sets;
-      const prev = sets[sets.length - 1];
-      sets.push({ weight: prev?.weight ?? '', reps: prev?.reps ?? '', ...(prev && setType(prev) === 'drop' ? { type: 'drop' } : {}), done: false });
-      save(); render();
-      break;
-    }
-    case 'remove-set': state.active.entries[ei].sets.pop(); save(); render(); break;
-    case 'entry-menu': {
-      const entries = state.active.entries;
-      openSheet(`
-        <div class="sheet-head"><span style="width:52px"></span><h2>${esc(exName(entries[ei].exerciseId))}</h2><button class="link" data-action="close-sheet">Cancel</button></div>
-        <div class="sheet-body"><div class="card">
-          ${entries[ei].note === undefined ? `<button class="list-item" data-action="entry-note" data-entry="${ei}">Add exercise note</button>` : ''}
-          ${ei < entries.length - 1 && (!entries[ei].superset || entries[ei + 1].superset !== entries[ei].superset) ? `<button class="list-item" data-action="entry-link" data-entry="${ei}">Superset with ${esc(exName(entries[ei + 1].exerciseId))}</button>` : ''}
-          ${entries[ei].superset ? `<button class="list-item" data-action="entry-unlink" data-entry="${ei}">Remove from superset</button>` : ''}
-          ${ei > 0 ? `<button class="list-item" data-action="move-entry" data-entry="${ei}" data-dir="-1">Move up</button>` : ''}
-          ${ei < entries.length - 1 ? `<button class="list-item" data-action="move-entry" data-entry="${ei}" data-dir="1">Move down</button>` : ''}
-          <button class="list-item" data-action="remove-entry" data-entry="${ei}" style="color:var(--danger)">Remove exercise</button>
-        </div></div>`);
-      break;
-    }
-    case 'move-entry': {
-      const entries = state.active.entries, to = ei + +el.dataset.dir;
-      [entries[ei], entries[to]] = [entries[to], entries[ei]];
-      normalizeSupersets(entries);
-      save(); closeSheet(); render();
-      break;
-    }
-    case 'remove-entry': state.active.entries.splice(ei, 1); normalizeSupersets(state.active.entries); save(); closeSheet(); render(); break;
-    case 'entry-note':
-      state.active.entries[ei].note = '';
-      save(); closeSheet(); render();
-      setTimeout(() => $(`.ex-note-input[data-note="active"][data-entry="${ei}"]`)?.focus(), 50);
-      break;
-    case 'entry-link': linkWithNext(state.active.entries, ei); save(); closeSheet(); render(); break;
-    case 'entry-unlink': unlinkSuperset(state.active.entries, ei); save(); closeSheet(); render(); break;
     case 'set-menu': openSetMenu(el.dataset.ctx, ei, si); break;
     case 'set-menu-back': returnFromMenu(el.dataset.ctx); break;
     case 'set-type': {
@@ -1687,6 +1401,7 @@ document.addEventListener('click', (ev) => {
     }
     case 'set-delete': {
       const sets = contextEntries(el.dataset.ctx)[ei].sets;
+      if (el.dataset.ctx === 'active' && !confirmRemoveSet(sets[si])) break;
       if (sets.length > 1) sets.splice(si, 1);
       returnFromMenu(el.dataset.ctx);
       break;
@@ -1711,6 +1426,7 @@ document.addEventListener('click', (ev) => {
         state = defaultState(); stopRest(); save(); applyTheme(); render(); toast('All data erased');
       }
       break;
+    default: handleWorkoutAction(action, el, ei, si); // Workout tab actions (workout.js)
   }
 });
 
@@ -1721,23 +1437,8 @@ document.addEventListener('input', (ev) => {
     const entries = contextEntries(t.dataset.note);
     if (entries?.[+t.dataset.entry]) entries[+t.dataset.entry].note = t.value;
     if (t.dataset.note === 'active') save();
-  } else if (t.dataset.field && state.active) {
-    const set = state.active.entries[+t.dataset.entry].sets[+t.dataset.set];
-    const value = t.value.replace(',', '.');
-    if (t.dataset.field === 'weight') {
-      // Typed in the selected unit, stored in kg.
-      const v = num(value);
-      set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
-    } else if (t.dataset.field === 'distance' || t.dataset.field === 'duration') {
-      setCardioField(set, t.dataset.field, t.value, t.dataset.kind);
-    } else {
-      set[t.dataset.field] = value;
-    }
-    save();
-  } else if (t.id === 'workout-name') {
-    state.active.name = t.value; save();
-  } else if (t.id === 'workout-location') {
-    state.active.location = t.value; save();
+  } else if (handleWorkoutInput(t)) {
+    // Live workout fields (workout.js).
   } else if ((t.dataset.tfield && ui.draft) || (t.dataset.wfield && ui.wdraft)) {
     // Editor sets (template targets or a saved workout): weight typed in the selected unit and
     // stored in kg, reps as a whole number, distance stored in metres, time in seconds.
@@ -1751,10 +1452,6 @@ document.addEventListener('input', (ev) => {
     updateWorkoutDraftField(t);
   } else if (t.id === 'draft-name') {
     ui.draft.name = t.value;
-  } else if (t.id === 'draft-location') {
-    ui.draft.location = t.value;
-  } else if (t.id === 'workout-notes') {
-    state.active.notes = t.value; save();
   } else if (t.id === 'exm-search') {
     ui.exm.q = t.value;
     $('#exm-list').innerHTML = exerciseManagerList();
@@ -1779,7 +1476,7 @@ function setCardioField(set, field, value, kind) {
 }
 
 function updateWorkoutDraftField(t) {
-  const key = { 'wedit-name': 'name', 'wedit-location': 'location', 'wedit-notes': 'notes', 'wedit-date': 'date', 'wedit-start': 'startTime', 'wedit-end': 'endTime' }[t.id];
+  const key = { 'wedit-name': 'name', 'wedit-notes': 'notes', 'wedit-date': 'date', 'wedit-start': 'startTime', 'wedit-end': 'endTime' }[t.id];
   if (!key) return;
   ui.wdraft[key] = t.value;
   const dur = $('#wedit-duration');
@@ -1801,15 +1498,6 @@ $('#sheet-backdrop').addEventListener('click', () => {
   else if (ui.draft) cancelTemplateDraft();
   else closeSheet();
 });
-$('#rest-minus').addEventListener('click', () => { ui.restEnd -= 15000; tickRest(); });
-$('#rest-plus').addEventListener('click', () => { ui.restEnd += 15000; tickRest(); });
-$('#rest-skip').addEventListener('click', stopRest);
-
-// Keep the elapsed workout clock ticking.
-setInterval(() => {
-  const el = $('#elapsed');
-  if (el && state.active) el.textContent = fmtDuration(Date.now() - new Date(state.active.start));
-}, 1000);
 
 // Offline support. A new version is installed in the background (see sw.js); when it
 // takes over, offer a reload. All data is saved, so reloading never loses anything.
