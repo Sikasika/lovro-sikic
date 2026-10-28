@@ -100,7 +100,7 @@ function save() {
   }
 }
 
-const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null };
+const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null };
 
 /* ---------- Helpers ---------- */
 
@@ -309,39 +309,7 @@ function openTemplateEditor() {
       ${locationOptions()}
 
       <div class="section-title">Exercises</div>
-      ${d.entries.length ? d.entries.map((e, i) => {
-        const name = esc(exName(e.exerciseId));
-        return `
-        <div class="card exercise-card tpl-card" style="margin-top:12px">
-          <div class="ex-head">
-            <span class="ex-name">${name}</span>
-            <span class="tpl-ex-actions">
-              <button class="icon-btn" data-action="draft-move-ex" data-entry="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${name} up">↑</button>
-              <button class="icon-btn" data-action="draft-move-ex" data-entry="${i}" data-dir="1" ${i === d.entries.length - 1 ? 'disabled' : ''} aria-label="Move ${name} down">↓</button>
-              <button class="icon-btn danger" data-action="draft-remove" data-entry="${i}" aria-label="Remove ${name}">✕</button>
-            </span>
-          </div>
-          <table class="sets tpl-sets">
-            <thead><tr><th>Set</th><th>Target ${u}</th><th>Target reps</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-            <tbody>
-              ${e.sets.map((st, j) => `
-              <tr>
-                <td class="set-num">${j + 1}</td>
-                <td><input inputmode="decimal" data-tfield="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(st.weight)))}" placeholder="–" aria-label="${name} set ${j + 1} target weight (${u})"></td>
-                <td><input inputmode="numeric" data-tfield="reps" data-entry="${i}" data-set="${j}" value="${esc(st.reps)}" placeholder="–" aria-label="${name} set ${j + 1} target reps"></td>
-                <td class="tpl-set-actions">
-                  <button class="icon-btn" data-action="draft-move-set" data-entry="${i}" data-set="${j}" ${j === 0 ? 'disabled' : ''} aria-label="Move set ${j + 1} up">↑</button>
-                  <button class="icon-btn danger" data-action="draft-remove-set" data-entry="${i}" data-set="${j}" ${e.sets.length === 1 ? 'disabled' : ''} aria-label="Remove set ${j + 1}">✕</button>
-                </td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-          <div class="ex-actions">
-            <button class="link" data-action="draft-add-set" data-entry="${i}">＋ Add Set</button>
-            <span class="sub">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>
-          </div>
-        </div>`;
-      }).join('') : '<div class="card card-pad" style="color:var(--muted)">No exercises yet.</div>'}
+      ${editorExerciseCards(d.entries, 'draft')}
       <div class="btn-row" style="margin-top:16px"><button class="btn secondary" data-action="draft-add-exercise">＋ Add Exercise</button></div>
       <p class="tpl-hint">Leave a target empty to fill it in during the workout. Weights are in ${u}.</p>
 
@@ -350,6 +318,74 @@ function openTemplateEditor() {
   `);
   // Keep the scroll position when the editor re-renders after a change.
   if (isEditor) $('#sheet .sheet-body').scrollTop = scroll;
+}
+
+/**
+ * Exercise cards with editable sets, shared by the template editor (kind 'draft',
+ * target weight/reps) and the saved-workout editor (kind 'wedit', logged weight/reps).
+ * Weights are stored in kg and shown in the selected unit.
+ */
+function editorExerciseCards(entries, kind) {
+  if (!entries.length) return '<div class="card card-pad" style="color:var(--muted)">No exercises yet.</div>';
+  const u = esc(unit());
+  const field = kind === 'draft' ? 'data-tfield' : 'data-wfield';
+  const target = kind === 'draft' ? 'Target ' : '';
+  return entries.map((e, i) => {
+    const name = esc(exName(e.exerciseId));
+    return `
+    <div class="card exercise-card tpl-card" style="margin-top:12px">
+      <div class="ex-head">
+        <span class="ex-name">${name}</span>
+        <span class="tpl-ex-actions">
+          <button class="icon-btn" data-action="${kind}-move-ex" data-entry="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${name} up">↑</button>
+          <button class="icon-btn" data-action="${kind}-move-ex" data-entry="${i}" data-dir="1" ${i === entries.length - 1 ? 'disabled' : ''} aria-label="Move ${name} down">↓</button>
+          <button class="icon-btn danger" data-action="${kind}-remove" data-entry="${i}" aria-label="Remove ${name}">✕</button>
+        </span>
+      </div>
+      <table class="sets tpl-sets">
+        <thead><tr><th>Set</th><th>${target}${u}</th><th>${target}reps</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+          ${e.sets.map((st, j) => `
+          <tr>
+            <td class="set-num">${j + 1}</td>
+            <td><input inputmode="decimal" ${field}="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(st.weight)))}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}weight (${u})"></td>
+            <td><input inputmode="numeric" ${field}="reps" data-entry="${i}" data-set="${j}" value="${esc(st.reps)}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}reps"></td>
+            <td class="tpl-set-actions">
+              <button class="icon-btn" data-action="${kind}-move-set" data-entry="${i}" data-set="${j}" ${j === 0 ? 'disabled' : ''} aria-label="Move set ${j + 1} up">↑</button>
+              <button class="icon-btn danger" data-action="${kind}-remove-set" data-entry="${i}" data-set="${j}" ${e.sets.length === 1 ? 'disabled' : ''} aria-label="Remove set ${j + 1}">✕</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="ex-actions">
+        <button class="link" data-action="${kind}-add-set" data-entry="${i}">＋ Add Set</button>
+        <span class="sub">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/** Add, remove or reorder exercises and sets in an editor's entries. Returns true if something changed. */
+function editEntries(entries, op, ei, si, dir) {
+  if (op === 'move-ex') {
+    const to = ei + dir;
+    if (to < 0 || to >= entries.length) return false;
+    [entries[ei], entries[to]] = [entries[to], entries[ei]];
+  } else if (op === 'remove') {
+    if (!confirm(`Remove ${exName(entries[ei].exerciseId)}?`)) return false;
+    entries.splice(ei, 1);
+  } else if (op === 'add-set') {
+    const sets = entries[ei].sets;
+    sets.push({ ...sets[sets.length - 1] });
+  } else if (op === 'remove-set') {
+    if (entries[ei].sets.length < 2) return false;
+    entries[ei].sets.splice(si, 1);
+  } else if (op === 'move-set') {
+    const sets = entries[ei].sets;
+    if (si < 1) return false;
+    [sets[si - 1], sets[si]] = [sets[si], sets[si - 1]];
+  }
+  return true;
 }
 
 function saveTemplate() {
@@ -462,12 +498,18 @@ function renderHistory() {
         <button class="list-item" data-action="open-workout" data-id="${w.id}">
           <div class="grow">
             <div class="truncate">${esc(w.name)}</div>
-            <div class="sub">${fmtDate(w.start)} · ${fmtDuration(new Date(w.end) - new Date(w.start))} · ${workoutSetCount(w)} sets</div>
+            <div class="sub">${fmtDate(w.start)} · ${workoutDurationText(w)} · ${workoutSetCount(w)} sets</div>
             ${w.location ? `<div class="sub truncate">📍 ${esc(w.location)}</div>` : ''}
           </div>
           <span class="chev">›</span>
         </button>`).join('')}
     </div>`).join('');
+}
+
+/** Duration of a saved workout, or – when it has no valid end time. */
+function workoutDurationText(w) {
+  const ms = new Date(w.end) - new Date(w.start);
+  return isNaN(ms) || ms < 0 ? '–' : fmtDuration(ms);
 }
 
 function renderWorkoutDetail(w) {
@@ -480,7 +522,7 @@ function renderWorkoutDetail(w) {
     </div>
     <div class="sheet-body">
       <div class="stats">
-        <div class="stat"><div class="num">${fmtDuration(new Date(w.end) - new Date(w.start))}</div><div class="lbl">Duration</div></div>
+        <div class="stat"><div class="num">${workoutDurationText(w)}</div><div class="lbl">Duration</div></div>
         <div class="stat"><div class="num">${workoutSetCount(w)}</div><div class="lbl">Sets</div></div>
         <div class="stat"><div class="num">${fmtWeight(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
       </div>
@@ -492,12 +534,158 @@ function renderWorkoutDetail(w) {
             <div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${num(s.weight) ? `${fmtWeight(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}</span></div>`).join('') || '<div class="detail-set muted">No completed sets</div>'}
         </div>`).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
+      <div class="btn-row"><button class="btn" data-action="edit-workout" data-id="${w.id}">Edit Workout</button></div>
       <div class="btn-row">
         <button class="btn secondary" data-action="repeat" data-id="${w.id}">Repeat Workout</button>
         <button class="btn secondary" data-action="save-history-template" data-id="${w.id}">Save as Template</button>
       </div>
     </div>
   `;
+}
+
+/* ----- Editing a saved workout ----- */
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const dateInputValue = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const timeInputValue = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+/** Start editing a copy of a saved workout; the workout itself is untouched until Save. */
+function beginWorkoutEdit(w) {
+  const start = new Date(w.start), end = new Date(w.end);
+  ui.wdraft = {
+    id: w.id,
+    name: w.name || '',
+    location: w.location || '',
+    notes: w.notes || '',
+    date: isNaN(start) ? '' : dateInputValue(start),
+    startTime: isNaN(start) ? '' : timeInputValue(start),
+    endTime: isNaN(end) ? '' : timeInputValue(end),
+    entries: (w.entries || []).map((e) => ({
+      exerciseId: e.exerciseId,
+      sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', done: st.done !== false }))
+    }))
+  };
+  ui.wdraftOriginal = JSON.stringify(ui.wdraft);
+}
+
+const workoutDraftChanged = () => ui.wdraft && JSON.stringify(ui.wdraft) !== ui.wdraftOriginal;
+
+/**
+ * Start and end of the draft as Dates (local time). An end time earlier than the
+ * start means the workout ran past midnight. Untouched fields keep the original
+ * timestamps exactly. Returns null when the date or start time is missing.
+ */
+function workoutDraftTimes(d, original) {
+  const o = JSON.parse(ui.wdraftOriginal);
+  const [y, m, day] = (d.date || '').split('-').map(Number);
+  const [sh, sm] = (d.startTime || '').split(':').map(Number);
+  if (!y || !m || !day || isNaN(sh) || isNaN(sm)) return null;
+  const sameStart = d.date === o.date && d.startTime === o.startTime;
+  const start = sameStart && !isNaN(new Date(original.start)) ? new Date(original.start) : new Date(y, m - 1, day, sh, sm);
+  let end = null;
+  if (d.endTime) {
+    const [eh, em] = d.endTime.split(':').map(Number);
+    if (sameStart && d.endTime === o.endTime && !isNaN(new Date(original.end))) end = new Date(original.end);
+    else {
+      end = new Date(y, m - 1, day, eh, em);
+      if (end < start) end = new Date(y, m - 1, day + 1, eh, em);
+    }
+  }
+  return { start, end };
+}
+
+function workoutDraftDurationText() {
+  const d = ui.wdraft;
+  const orig = state.workouts.find((w) => w.id === d.id) || {};
+  const t = workoutDraftTimes(d, orig);
+  if (!t) return 'Enter a date and start time';
+  if (!t.end) return 'No end time · duration unknown';
+  const nextDay = sDay(t.end) > sDay(t.start);
+  return `Duration ${fmtDuration(t.end - t.start)}${nextDay ? ' · ends the next day' : ''}`;
+}
+
+function openWorkoutEditor() {
+  const d = ui.wdraft;
+  const scroll = $('#sheet .sheet-body')?.scrollTop ?? 0;
+  const isEditor = !!$('#sheet .workout-editor');
+  openSheet(`
+    <div class="sheet-head">
+      <button class="link" data-action="cancel-wedit">Cancel</button>
+      <h2>Edit Workout</h2>
+      <button class="link" data-action="save-wedit" style="font-weight:600">Save</button>
+    </div>
+    <div class="sheet-body workout-editor">
+      <div class="card">
+        <label class="field"><span>Name</span><input id="wedit-name" value="${esc(d.name)}" placeholder="Workout name" autocomplete="off"></label>
+        <label class="field"><span>Date</span><input type="date" id="wedit-date" value="${esc(d.date)}" max="${dateInputValue(new Date())}"></label>
+        <label class="field"><span>Start time</span><input type="time" id="wedit-start" value="${esc(d.startTime)}"></label>
+        <label class="field"><span>End time</span><input type="time" id="wedit-end" value="${esc(d.endTime)}"></label>
+        <div class="field wedit-duration" id="wedit-duration" aria-live="polite">${esc(workoutDraftDurationText())}</div>
+        <label class="field"><span>Location</span><input id="wedit-location" list="locations" value="${esc(d.location)}" placeholder="Optional" autocomplete="off"></label>
+      </div>
+      ${locationOptions()}
+
+      <div class="section-title">Exercises</div>
+      ${editorExerciseCards(d.entries, 'wedit')}
+      <div class="btn-row" style="margin-top:16px"><button class="btn secondary" data-action="wedit-add-exercise">＋ Add Exercise</button></div>
+      <p class="tpl-hint">Sets left completely empty are removed when you save. Weights are in ${esc(unit())}.</p>
+
+      <div class="section-title">Notes</div>
+      <div class="card"><textarea class="notes" id="wedit-notes" placeholder="How did it feel?">${esc(d.notes)}</textarea></div>
+    </div>
+  `);
+  if (isEditor) $('#sheet .sheet-body').scrollTop = scroll;
+}
+
+/** Close the editor without saving, asking first if anything changed. */
+function cancelWorkoutEdit() {
+  const d = ui.wdraft;
+  if (workoutDraftChanged() && !confirm('Discard your changes to this workout?')) return;
+  const w = state.workouts.find((x) => x.id === d.id);
+  ui.wdraft = null;
+  if (w) openSheet(renderWorkoutDetail(w)); else closeSheet();
+}
+
+/** Write the draft back into the same workout (same id), never creating a copy. */
+/** Empty sets for an exercise added while editing a saved workout. */
+const newLoggedSets = () => Array.from({ length: 3 }, () => ({ weight: '', reps: '', done: true }));
+
+function saveWorkoutEdit() {
+  const d = ui.wdraft;
+  const i = state.workouts.findIndex((w) => w.id === d.id);
+  if (i < 0) { alert('This workout no longer exists.'); ui.wdraft = null; closeSheet(); render(); return; }
+  const original = state.workouts[i];
+  const times = workoutDraftTimes(d, original);
+  if (!times) { alert('Please enter a date and a start time.'); return; }
+  if (times.start > new Date()) { alert('The workout can\'t start in the future.'); return; }
+  const entries = d.entries
+    .map((e) => ({
+      exerciseId: e.exerciseId,
+      sets: e.sets
+        .filter((st) => st.weight !== '' || st.reps !== '')
+        .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), done: st.done !== false }))
+    }))
+    .filter((e) => e.sets.length);
+  if (!entries.some((e) => completedSets(e).length)) {
+    alert('A workout needs at least one set with weight or reps. To remove the whole workout, use Delete instead.');
+    return;
+  }
+  const updated = {
+    ...original,
+    name: d.name.trim() || original.name || 'Workout',
+    location: d.location.trim(),
+    notes: d.notes,
+    start: times.start.toISOString(),
+    entries
+  };
+  if (times.end) updated.end = times.end.toISOString(); else delete updated.end;
+  state.workouts[i] = updated;
+  state.workouts.sort((a, b) => new Date(b.start) - new Date(a.start));
+  ui.wdraft = null;
+  save();
+  render();
+  openSheet(renderWorkoutDetail(updated));
+  toast('Workout updated');
 }
 
 /* ----- Progress tab ----- */
@@ -671,7 +859,8 @@ function openSheet(html) {
 }
 
 function closeSheet() {
-  ui.draft = null; // a template draft only lives while its editor is open
+  ui.draft = null; // drafts only live while their editor is open
+  ui.wdraft = null;
   $('#sheet').classList.add('hidden');
   $('#sheet-backdrop').classList.add('hidden');
   $('#sheet').innerHTML = '';
@@ -706,7 +895,7 @@ function openExercisePicker(mode = 'pick') {
     <div class="sheet-head">
       <span style="width:52px"></span>
       <h2>${mode === 'manage' ? 'Exercises' : 'Add Exercise'}</h2>
-      <button class="link" data-action="${mode === 'template' ? 'back-to-template' : 'close-sheet'}">${mode === 'template' ? 'Back' : 'Done'}</button>
+      <button class="link" data-action="${{ template: 'back-to-template', wedit: 'back-to-wedit' }[mode] || 'close-sheet'}">${mode === 'template' || mode === 'wedit' ? 'Back' : 'Done'}</button>
     </div>
     <div class="sheet-body">
       <input class="search" id="exercise-search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}">
@@ -721,7 +910,7 @@ function openCategoryPicker(name, mode) {
     <div class="sheet-head">
       <span style="width:52px"></span>
       <h2>Category for “${esc(name)}”</h2>
-      <button class="link" data-action="${mode === 'template' ? 'back-to-template' : 'close-sheet'}">Cancel</button>
+      <button class="link" data-action="${{ template: 'back-to-template', wedit: 'back-to-wedit' }[mode] || 'close-sheet'}">Cancel</button>
     </div>
     <div class="sheet-body">
       <div class="card">
@@ -890,6 +1079,15 @@ document.addEventListener('click', (ev) => {
   const ei = el.dataset.entry != null ? +el.dataset.entry : null;
   const si = el.dataset.set != null ? +el.dataset.set : null;
 
+  // Exercise/set editing shared by the template editor (draft-*) and workout editor (wedit-*).
+  const edit = action.match(/^(draft|wedit)-(move-ex|remove|add-set|remove-set|move-set)$/);
+  if (edit) {
+    const isTemplate = edit[1] === 'draft';
+    const entries = (isTemplate ? ui.draft : ui.wdraft)?.entries;
+    if (entries && editEntries(entries, edit[2], ei, si, +el.dataset.dir)) (isTemplate ? openTemplateEditor : openWorkoutEditor)();
+    return;
+  }
+
   switch (action) {
     case 'start': startWorkout(); break;
     case 'repeat': {
@@ -919,42 +1117,20 @@ document.addEventListener('click', (ev) => {
       break;
     case 'draft-add-exercise': openExercisePicker('template'); break;
     case 'back-to-template': openTemplateEditor(); break;
-    case 'draft-remove': {
-      const name = exName(ui.draft.entries[ei].exerciseId);
-      if (confirm(`Remove ${name} from this template?`)) { ui.draft.entries.splice(ei, 1); openTemplateEditor(); }
-      break;
-    }
-    case 'draft-move-ex': {
-      const entries = ui.draft.entries, to = ei + +el.dataset.dir;
-      if (to < 0 || to >= entries.length) break;
-      [entries[ei], entries[to]] = [entries[to], entries[ei]];
-      openTemplateEditor();
-      break;
-    }
-    case 'draft-add-set': {
-      const sets = ui.draft.entries[ei].sets;
-      sets.push({ ...(sets[sets.length - 1] || emptyPlannedSet()) });
-      openTemplateEditor();
-      break;
-    }
-    case 'draft-remove-set': {
-      const sets = ui.draft.entries[ei].sets;
-      if (sets.length > 1) { sets.splice(si, 1); openTemplateEditor(); }
-      break;
-    }
-    case 'draft-move-set': {
-      const sets = ui.draft.entries[ei].sets;
-      if (si > 0) { [sets[si - 1], sets[si]] = [sets[si], sets[si - 1]]; openTemplateEditor(); }
-      break;
-    }
     case 'save-active-template': saveAsTemplate(state.active); break;
+    case 'edit-workout': beginWorkoutEdit(state.workouts.find((w) => w.id === id)); openWorkoutEditor(); break;
+    case 'save-wedit': saveWorkoutEdit(); break;
+    case 'cancel-wedit': cancelWorkoutEdit(); break;
+    case 'wedit-add-exercise': openExercisePicker('wedit'); break;
+    case 'back-to-wedit': openWorkoutEditor(); break;
     case 'save-history-template': saveAsTemplate(state.workouts.find((w) => w.id === id)); break;
     case 'discard':
       if (confirm('Discard this workout? This cannot be undone.')) { state.active = null; stopRest(); save(); render(); }
       break;
     case 'add-exercise': openExercisePicker('pick'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
     case 'pick-exercise':
-      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: defaultPlannedSets(id) }); openTemplateEditor(); }
+      if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: id, sets: newLoggedSets() }); openWorkoutEditor(); }
+      else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: defaultPlannedSets(id) }); openTemplateEditor(); }
       else addExerciseToWorkout(id);
       break;
     case 'create-exercise': openCategoryPicker($('#exercise-search').value.trim(), el.dataset.mode); break;
@@ -962,7 +1138,8 @@ document.addEventListener('click', (ev) => {
       const ex = { id: uid(), name: el.dataset.name, category: el.dataset.category };
       state.exercises.push(ex);
       save();
-      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: defaultPlannedSets(ex.id) }); openTemplateEditor(); }
+      if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: ex.id, sets: newLoggedSets() }); openWorkoutEditor(); }
+      else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: defaultPlannedSets(ex.id) }); openTemplateEditor(); }
       else if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
       else openExercisePicker('manage');
       break;
@@ -1051,6 +1228,14 @@ document.addEventListener('input', (ev) => {
     const v = num(t.value.replace(',', '.'));
     if (t.dataset.tfield === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
     else set.reps = v == null || v < 0 ? '' : Math.round(v);
+  } else if (t.dataset.wfield && ui.wdraft) {
+    // Saved-workout sets: weight typed in the selected unit and stored in kg, reps as a whole number.
+    const set = ui.wdraft.entries[+t.dataset.entry].sets[+t.dataset.set];
+    const v = num(t.value.replace(',', '.'));
+    if (t.dataset.wfield === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
+    else set.reps = v == null || v < 0 ? '' : Math.round(v);
+  } else if (t.id && t.id.startsWith('wedit-') && ui.wdraft) {
+    updateWorkoutDraftField(t);
   } else if (t.id === 'draft-name') {
     ui.draft.name = t.value;
   } else if (t.id === 'draft-location') {
@@ -1064,12 +1249,26 @@ document.addEventListener('input', (ev) => {
   }
 });
 
+function updateWorkoutDraftField(t) {
+  const key = { 'wedit-name': 'name', 'wedit-location': 'location', 'wedit-notes': 'notes', 'wedit-date': 'date', 'wedit-start': 'startTime', 'wedit-end': 'endTime' }[t.id];
+  if (!key) return;
+  ui.wdraft[key] = t.value;
+  const dur = $('#wedit-duration');
+  if (dur) dur.textContent = workoutDraftDurationText();
+}
+
 document.addEventListener('change', (ev) => {
+  // Some iOS date/time pickers only report the final value on change.
+  if (ev.target.id && ev.target.id.startsWith('wedit-') && ui.wdraft) updateWorkoutDraftField(ev.target);
   if (ev.target.id === 'progress-exercise') { ui.progressExercise = ev.target.value; render(); }
   if (ev.target.id === 'import-file' && ev.target.files[0]) { importData(ev.target.files[0]); ev.target.value = ''; }
 });
 
-$('#sheet-backdrop').addEventListener('click', () => (ui.draft ? cancelTemplateDraft() : closeSheet()));
+$('#sheet-backdrop').addEventListener('click', () => {
+  if (ui.wdraft) cancelWorkoutEdit();
+  else if (ui.draft) cancelTemplateDraft();
+  else closeSheet();
+});
 $('#rest-minus').addEventListener('click', () => { ui.restEnd -= 15000; tickRest(); });
 $('#rest-plus').addEventListener('click', () => { ui.restEnd += 15000; tickRest(); });
 $('#rest-skip').addEventListener('click', stopRest);

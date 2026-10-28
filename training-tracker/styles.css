@@ -493,6 +493,8 @@ textarea.notes {
 .tpl-set-actions .icon-btn + .icon-btn { margin-left: 4px; }
 .tpl-card .ex-actions { align-items: center; }
 .tpl-card .ex-actions .sub { font-size: 13px; color: var(--muted); }
+.wedit-duration { font-size: 14px; color: var(--muted); min-height: 40px; }
+.field input[type="date"], .field input[type="time"] { flex: 0 1 auto; font-size: 17px; color: var(--text); }
 .tpl-hint { font-size: 13px; color: var(--muted); margin: 10px 4px 0; }
 .visually-hidden {
   position: absolute;
