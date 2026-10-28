@@ -403,6 +403,9 @@ textarea.notes {
   font-variant-numeric: tabular-nums;
 }
 .detail-set .muted { color: var(--muted); }
+.detail-set { gap: 12px; }
+.detail-set > span:first-child { flex: none; white-space: nowrap; }
+.detail-set > span:last-child { text-align: right; }
 
 .toast {
   position: fixed;

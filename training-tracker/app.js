@@ -17,8 +17,22 @@ const DEFAULT_EXERCISES = [
   ['Overhead Press', 'Shoulders'], ['Lateral Raise', 'Shoulders'], ['Face Pull', 'Shoulders'],
   ['Barbell Curl', 'Arms'], ['Hammer Curl', 'Arms'], ['Tricep Pushdown', 'Arms'], ['Dip', 'Arms'],
   ['Plank', 'Core'], ['Hanging Leg Raise', 'Core'], ['Crunch', 'Core'],
-  ['Running', 'Cardio'], ['Cycling', 'Cardio'], ['Rowing', 'Cardio']
+  ['Running', 'Cardio'], ['Walking', 'Cardio'], ['Cycling', 'Cardio'], ['Swimming', 'Cardio'], ['Rowing', 'Cardio']
 ];
+
+/** Cardio exercises added in a later version; given once to existing users who lack them. */
+const ADDED_CARDIO_EXERCISES = ['Walking', 'Swimming'];
+
+/** Add missing newer default exercises once (never removes anything, never re-adds after deletion). */
+function addNewDefaultExercises(st) {
+  if (st.cardioExercisesAdded) return false;
+  const have = new Set((st.exercises || []).map((e) => String(e.name).trim().toLowerCase()));
+  ADDED_CARDIO_EXERCISES.forEach((name) => {
+    if (!have.has(name.toLowerCase())) st.exercises.push({ id: uid(), name, category: 'Cardio' });
+  });
+  st.cardioExercisesAdded = true;
+  return true;
+}
 
 /* ---------- State ---------- */
 
@@ -31,7 +45,8 @@ function defaultState() {
     templates: [],
     active: null,
     settings: { unit: 'kg', rest: 90 },
-    schemaVersion: SCHEMA_VERSION
+    schemaVersion: SCHEMA_VERSION,
+    cardioExercisesAdded: true
   };
 }
 
@@ -78,7 +93,14 @@ function load() {
         data = migrate(data);
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* saved on the next change */ }
       }
-      return { ...defaultState(), ...data, settings: { ...defaultState().settings, ...data.settings } };
+      const st = { ...defaultState(), ...data, settings: { ...defaultState().settings, ...data.settings } };
+      if (!data.cardioExercisesAdded) {
+        st.cardioExercisesAdded = false;
+        if (addNewDefaultExercises(st)) {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(st)); } catch (e) { /* saved on the next change */ }
+        }
+      }
+      return st;
     }
   } catch (e) {
     console.error('Could not load data', e);
@@ -150,8 +172,22 @@ function lastEntryFor(exerciseId) {
   return null;
 }
 
-function summarizeSets(sets) {
-  return sets.map((s) => (num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`)).join(', ');
+function summarizeSets(sets, kind = null) {
+  return sets.map((s) => {
+    if (kind && ((num(s.distance) || 0) > 0 || (num(s.duration) || 0) > 0)) return fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind);
+    return num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`;
+  }).join(', ');
+}
+
+/** Value shown in a time input: stored seconds → "25:30". */
+const inputClock = (sec) => (num(sec) == null ? '' : fmtClock(num(sec)));
+/** Optional cardio fields of a set, only when present (keeps other sets unchanged). */
+function cardioFields(s) {
+  const out = {};
+  const d = num(s?.distance), t = num(s?.duration);
+  if (d != null && d >= 0) out.distance = d;
+  if (t != null && t >= 0) out.duration = t;
+  return out;
 }
 
 function toast(msg) {
@@ -248,7 +284,7 @@ function locationOptions() {
 /** Planned sets of a template entry, in the current format (never mutates the template). */
 function templateSets(entry) {
   if (Array.isArray(entry?.sets)) {
-    return entry.sets.map((s) => ({ weight: num(s?.weight) ?? '', reps: num(s?.reps) ?? '' }));
+    return entry.sets.map((s) => ({ weight: num(s?.weight) ?? '', reps: num(s?.reps) ?? '', ...cardioFields(s) }));
   }
   const n = Math.max(1, Math.min(50, Math.round(Number(entry?.sets)) || 1));
   return Array.from({ length: n }, () => ({ weight: '', reps: '' }));
@@ -262,7 +298,7 @@ function entriesToTemplate(entries) {
     exerciseId: e.exerciseId,
     sets: (e.sets.length ? e.sets : [emptyPlannedSet()]).map((s) => {
       const w = num(s.weight), r = num(s.reps);
-      return { weight: w != null && w >= 0 ? w : '', reps: r != null && r >= 0 ? r : '' };
+      return { weight: w != null && w >= 0 ? w : '', reps: r != null && r >= 0 ? r : '', ...cardioFields(s) };
     })
   }));
 }
@@ -332,6 +368,7 @@ function editorExerciseCards(entries, kind) {
   const target = kind === 'draft' ? 'Target ' : '';
   return entries.map((e, i) => {
     const name = esc(exName(e.exerciseId));
+    const ck = cardioKindOf(e.exerciseId);
     return `
     <div class="card exercise-card tpl-card" style="margin-top:12px">
       <div class="ex-head">
@@ -343,13 +380,16 @@ function editorExerciseCards(entries, kind) {
         </span>
       </div>
       <table class="sets tpl-sets">
-        <thead><tr><th>Set</th><th>${target}${u}</th><th>${target}reps</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+        <thead><tr><th>Set</th>${ck ? `<th>${target}${distanceUnit(ck)}</th><th>${target}time</th>` : `<th>${target}${u}</th><th>${target}reps</th>`}<th><span class="visually-hidden">Actions</span></th></tr></thead>
         <tbody>
           ${e.sets.map((st, j) => `
           <tr>
             <td class="set-num">${j + 1}</td>
+            ${ck ? `
+            <td><input inputmode="decimal" ${field}="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(st.distance), ck))}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}distance (${distanceUnit(ck)})"></td>
+            <td><input inputmode="decimal" ${field}="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(st.duration))}" placeholder="min" aria-label="${name} set ${j + 1} ${target.toLowerCase()}time, minutes or mm:ss"></td>` : `
             <td><input inputmode="decimal" ${field}="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(st.weight)))}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}weight (${u})"></td>
-            <td><input inputmode="numeric" ${field}="reps" data-entry="${i}" data-set="${j}" value="${esc(st.reps)}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}reps"></td>
+            <td><input inputmode="numeric" ${field}="reps" data-entry="${i}" data-set="${j}" value="${esc(st.reps)}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}reps"></td>`}
             <td class="tpl-set-actions">
               <button class="icon-btn" data-action="${kind}-move-set" data-entry="${i}" data-set="${j}" ${j === 0 ? 'disabled' : ''} aria-label="Move set ${j + 1} up">↑</button>
               <button class="icon-btn danger" data-action="${kind}-remove-set" data-entry="${i}" data-set="${j}" ${e.sets.length === 1 ? 'disabled' : ''} aria-label="Remove set ${j + 1}">✕</button>
@@ -447,6 +487,7 @@ function renderActive(action) {
 }
 
 function renderEntry(entry, i) {
+  const ck = cardioKindOf(entry.exerciseId);
   const last = lastEntryFor(entry.exerciseId);
   const lastSets = last ? completedSets(last) : [];
   return `
@@ -455,17 +496,21 @@ function renderEntry(entry, i) {
         <span class="ex-name">${esc(exName(entry.exerciseId))}</span>
         <button class="link" data-action="entry-menu" data-entry="${i}" aria-label="Exercise options">•••</button>
       </div>
-      ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets))}</div>` : ''}
+      ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets, ck))}</div>` : ''}
+      ${ck ? `<div class="ex-last">Distance in ${distanceUnit(ck)}, time in minutes (25 or 25.5) or mm:ss. Leave blank what you didn't measure.</div>` : ''}
       <table class="sets">
-        <thead><tr><th>Set</th><th>${esc(unit())}</th><th>Reps</th><th>✓</th></tr></thead>
+        <thead><tr><th>Set</th>${ck ? `<th>${distanceUnit(ck)}</th><th>Time</th>` : `<th>${esc(unit())}</th><th>Reps</th>`}<th>✓</th></tr></thead>
         <tbody>
           ${entry.sets.map((s, j) => {
             const prev = lastSets[j];
             return `
             <tr class="${s.done ? 'done' : ''}" data-set="${j}">
               <td class="set-num">${j + 1}</td>
+              ${ck ? `
+              <td><input inputmode="decimal" data-field="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(s.distance), ck))}" placeholder="–" aria-label="Distance (${distanceUnit(ck)})"></td>
+              <td><input inputmode="decimal" data-field="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(s.duration))}" placeholder="min" aria-label="Time, minutes or mm:ss"></td>` : `
               <td><input inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(s.weight)))}" placeholder="${esc(inputWeight(num(prev?.weight)))}" aria-label="Weight (${esc(unit())})"></td>
-              <td><input inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${prev?.reps ?? ''}" aria-label="Reps"></td>
+              <td><input inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${prev?.reps ?? ''}" aria-label="Reps"></td>`}
               <td><button class="check" data-action="toggle-set" data-entry="${i}" data-set="${j}" aria-label="Mark set done">✓</button></td>
             </tr>`;
           }).join('')}
@@ -506,6 +551,33 @@ function renderHistory() {
     </div>`).join('');
 }
 
+/** Set lines for a saved exercise in workout details (cardio: distance, time, pace/speed). */
+function detailSets(e) {
+  const sets = completedSets(e);
+  if (!sets.length) return '<div class="detail-set muted">No completed sets</div>';
+  const ck = cardioKindOf(e.exerciseId);
+  const lines = sets.map((s, j) => {
+    const d = num(s.distance) || 0, t = num(s.duration) || 0;
+    const text = ck && (d || t)
+      ? fmtCardio(d, t, ck)
+      : `${num(s.weight) ? `${fmtWeight(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}${ck ? ' reps' : ''}`;
+    return `<div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${esc(text)}</span></div>`;
+  }).join('');
+  if (!ck || sets.length < 2) return lines;
+  // Totals across sets; pace/speed only from sets that have both distance and time.
+  const D = sets.reduce((a, s) => a + (num(s.distance) || 0), 0), T = sets.reduce((a, s) => a + (num(s.duration) || 0), 0);
+  const both = sets.filter((s) => num(s.distance) > 0 && num(s.duration) > 0);
+  const bd = both.reduce((a, s) => a + num(s.distance), 0), bt = both.reduce((a, s) => a + num(s.duration), 0);
+  const parts = [];
+  if (D) parts.push(fmtDistance(D, ck));
+  if (T) parts.push(fmtClock(T));
+  if (bd && bt) {
+    if (paceUnit(ck)) parts.push(`${fmtClock(paceSeconds(bt, bd, ck))} ${paceUnit(ck)}`);
+    if (CARDIO_KINDS[ck].speed) parts.push(`${fmtNum(speedValue(bd, bt))} ${speedUnit()}`);
+  }
+  return lines + (parts.length ? `<div class="detail-set"><span class="muted">Total</span><span><b>${esc(parts.join(' · '))}</b></span></div>` : '');
+}
+
 /** Duration of a saved workout, or – when it has no valid end time. */
 function workoutDurationText(w) {
   const ms = new Date(w.end) - new Date(w.start);
@@ -530,8 +602,7 @@ function renderWorkoutDetail(w) {
       ${w.entries.map((e) => `
         <div class="card" style="margin-bottom:10px;padding:6px 0">
           <div class="detail-set" style="font-weight:600;color:var(--accent)">${esc(exName(e.exerciseId))}</div>
-          ${completedSets(e).map((s, j) => `
-            <div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${num(s.weight) ? `${fmtWeight(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}</span></div>`).join('') || '<div class="detail-set muted">No completed sets</div>'}
+          ${detailSets(e)}
         </div>`).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
       <div class="btn-row"><button class="btn" data-action="edit-workout" data-id="${w.id}">Edit Workout</button></div>
@@ -562,7 +633,7 @@ function beginWorkoutEdit(w) {
     endTime: isNaN(end) ? '' : timeInputValue(end),
     entries: (w.entries || []).map((e) => ({
       exerciseId: e.exerciseId,
-      sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', done: st.done !== false }))
+      sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', ...cardioFields(st), done: st.done !== false }))
     }))
   };
   ui.wdraftOriginal = JSON.stringify(ui.wdraft);
@@ -662,8 +733,8 @@ function saveWorkoutEdit() {
     .map((e) => ({
       exerciseId: e.exerciseId,
       sets: e.sets
-        .filter((st) => st.weight !== '' || st.reps !== '')
-        .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), done: st.done !== false }))
+        .filter((st) => st.weight !== '' || st.reps !== '' || num(st.distance) != null || num(st.duration) != null)
+        .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), ...cardioFields(st), done: st.done !== false }))
     }))
     .filter((e) => e.sets.length);
   if (!entries.some((e) => completedSets(e).length)) {
@@ -742,6 +813,8 @@ function renderProgress() {
 
 function renderExerciseProgress(exerciseId, items) {
   const sessions = exerciseSessions(items, exerciseId);
+  const ck = cardioKindOf(exerciseId);
+  if (ck) return renderCardioProgress(sessions, ck);
   const weighted = sessions.some((s) => s.v.weight != null);
   const metric = weighted ? 'e1rm' : 'reps';
   const points = sessions
@@ -782,7 +855,7 @@ function barChart(bars) {
   </svg>`;
 }
 
-function lineChart(points) {
+function lineChart(points, fmt = fmtNum) {
   const W = 320, H = 160, padX = 28, padY = 18;
   if (points.length < 2) {
     return `<div class="empty" style="padding:24px">Log this exercise at least twice to see a trend.</div>`;
@@ -796,14 +869,44 @@ function lineChart(points) {
   const area = `${path} L${x(points.length - 1).toFixed(1)},${H - padY} L${x(0).toFixed(1)},${H - padY} Z`;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress over time">
     <line class="axis" x1="${padX}" y1="${H - padY}" x2="${W}" y2="${H - padY}"/>
-    <text class="lbl" x="0" y="${y(max) + 3}">${fmtNum(max)}</text>
-    <text class="lbl" x="0" y="${y(min) + 3}">${fmtNum(min)}</text>
+    <text class="lbl" x="0" y="${y(max) + 3}">${fmt(max)}</text>
+    <text class="lbl" x="0" y="${y(min) + 3}">${fmt(min)}</text>
     <path class="area" d="${area}"/>
     <path class="line" d="${path}"/>
     ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.value)}" r="3"/>`).join('')}
     <text class="lbl" x="${padX}" y="${H - 3}">${fmtDate(points[0].date, { day: 'numeric', month: 'short' })}</text>
     <text class="lbl" x="${W - 8}" y="${H - 3}" text-anchor="end">${fmtDate(points[points.length - 1].date, { day: 'numeric', month: 'short' })}</text>
   </svg>`;
+}
+
+/** Progress for a cardio exercise: distance (or time) per session and its best values. */
+function renderCardioProgress(sessions, ck) {
+  const hasDist = sessions.some((s) => s.v.distance != null);
+  const metric = hasDist ? 'distance' : 'duration';
+  const points = sessions.filter((s) => s.v[metric] != null)
+    .map((s) => ({ date: s.date, value: metric === 'distance' ? toDisplayDistance(s.v.distance, ck) : s.v.duration }));
+  const longest = bestSession(sessions, 'distance');
+  const longestTime = bestSession(sessions, 'duration');
+  const fastest = bestSession(sessions, 'pace');
+  const card = (value, label) => `<div class="stat"><div class="num">${value}</div><div class="lbl">${label}</div></div>`;
+  let speedCard = '';
+  if (fastest) {
+    speedCard = paceUnit(ck)
+      ? card(fmtClock(paceSeconds(fastest.v.pace, 1, ck)), `Best pace (${paceUnit(ck)})`)
+      : card(fmtNum(speedValue(fastest.v.speed, 1)), `Top speed (${speedUnit()})`);
+  }
+  return `
+    <div class="card card-pad" style="margin-top:12px">
+      <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:6px">${hasDist ? `Distance per session (${distanceUnit(ck)})` : 'Time per session'}</div>
+      ${points.length ? lineChart(points, hasDist ? fmtNum : (v) => fmtClock(v * 60)) : '<div class="empty" style="padding:24px">Log distance or time to see a trend.</div>'}
+    </div>
+    <div class="stats" style="margin-top:12px">
+      ${longest ? card(fmtDistance(longest.v.distance, ck), 'Longest') : longestTime ? card(fmtClock(longestTime.v.duration * 60), 'Longest time') : ''}
+      ${speedCard}
+      ${card(sessions.length, 'Sessions')}
+    </div>
+    ${hasDist && !fastest ? `<p class="stats-note">Log both distance and time in the same set to see ${paceUnit(ck) ? 'pace' : 'speed'}.</p>` : ''}
+  `;
 }
 
 /* ----- Settings tab ----- */
@@ -813,10 +916,10 @@ function renderSettings() {
     <div class="section-title">Preferences</div>
     <div class="card">
       <div class="field">
-        <span>Weight unit</span>
-        <div class="segmented">
-          <button data-action="unit" data-unit="kg" class="${unit() === 'kg' ? 'on' : ''}">kg</button>
-          <button data-action="unit" data-unit="lb" class="${unit() === 'lb' ? 'on' : ''}">lb</button>
+        <span>Units</span>
+        <div class="segmented" role="group" aria-label="Units">
+          <button data-action="unit" data-unit="kg" class="${unit() === 'kg' ? 'on' : ''}" aria-label="Metric: kilograms and kilometres">kg · km</button>
+          <button data-action="unit" data-unit="lb" class="${unit() === 'lb' ? 'on' : ''}" aria-label="Imperial: pounds and miles">lb · mi</button>
         </div>
       </div>
       <label class="field">
@@ -931,7 +1034,7 @@ function startWorkout(from) {
   const setCount = (e) => (completedSets(e).length || e.sets.length);
   // New objects only, so the workout never changes the template it came from.
   const setsFor = (e) => (isTemplate
-    ? templateSets(e).map((p) => ({ weight: p.weight, reps: p.reps === '' ? '' : String(p.reps), done: false }))
+    ? templateSets(e).map((p) => ({ weight: p.weight, reps: p.reps === '' ? '' : String(p.reps), ...cardioFields(p), done: false }))
     : Array.from({ length: Math.max(1, setCount(e)) }, () => ({ weight: '', reps: '', done: false })));
   state.active = {
     id: uid(),
@@ -960,11 +1063,13 @@ function addExerciseToWorkout(exerciseId) {
 
 function finishWorkout() {
   const w = state.active;
-  // Fill blanks from placeholders (last session) for sets marked done.
+  // Fill blank weight/reps from placeholders (last session) for sets marked done.
+  // Cardio distance and time are never filled in: only what was measured is kept.
   w.entries.forEach((entry) => {
+    const isCardio = !!cardioKindOf(entry.exerciseId);
     const lastSets = (() => { const l = lastEntryFor(entry.exerciseId); return l ? completedSets(l) : []; })();
     entry.sets.forEach((s, j) => {
-      if (s.done) {
+      if (s.done && !isCardio) {
         if (s.weight === '' && lastSets[j]) s.weight = lastSets[j].weight;
         if (s.reps === '' && lastSets[j]) s.reps = lastSets[j].reps;
       }
@@ -1056,7 +1161,8 @@ function importData(file) {
       if (!Array.isArray(parsed.workouts) || !Array.isArray(parsed.exercises)) throw new Error('Invalid file');
       const data = migrate(parsed); // older backups store weights as typed; convert like stored data
       if (!confirm(`Replace current data with backup (${data.workouts.length} workouts)?`)) return;
-      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings }, schemaVersion: data.schemaVersion };
+      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings }, schemaVersion: data.schemaVersion, cardioExercisesAdded: !!data.cardioExercisesAdded };
+      addNewDefaultExercises(state);
       save();
       render();
       toast('Backup imported');
@@ -1214,6 +1320,8 @@ document.addEventListener('input', (ev) => {
       // Typed in the selected unit, stored in kg.
       const v = num(value);
       set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
+    } else if (t.dataset.field === 'distance' || t.dataset.field === 'duration') {
+      setCardioField(set, t.dataset.field, t.value, t.dataset.kind);
     } else {
       set[t.dataset.field] = value;
     }
@@ -1222,18 +1330,15 @@ document.addEventListener('input', (ev) => {
     state.active.name = t.value; save();
   } else if (t.id === 'workout-location') {
     state.active.location = t.value; save();
-  } else if (t.dataset.tfield && ui.draft) {
-    // Template targets: weight typed in the selected unit and stored in kg, reps as a whole number.
-    const set = ui.draft.entries[+t.dataset.entry].sets[+t.dataset.set];
+  } else if ((t.dataset.tfield && ui.draft) || (t.dataset.wfield && ui.wdraft)) {
+    // Editor sets (template targets or a saved workout): weight typed in the selected unit and
+    // stored in kg, reps as a whole number, distance stored in metres, time in seconds.
+    const field = t.dataset.tfield || t.dataset.wfield;
+    const set = (t.dataset.tfield ? ui.draft : ui.wdraft).entries[+t.dataset.entry].sets[+t.dataset.set];
     const v = num(t.value.replace(',', '.'));
-    if (t.dataset.tfield === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
-    else set.reps = v == null || v < 0 ? '' : Math.round(v);
-  } else if (t.dataset.wfield && ui.wdraft) {
-    // Saved-workout sets: weight typed in the selected unit and stored in kg, reps as a whole number.
-    const set = ui.wdraft.entries[+t.dataset.entry].sets[+t.dataset.set];
-    const v = num(t.value.replace(',', '.'));
-    if (t.dataset.wfield === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
-    else set.reps = v == null || v < 0 ? '' : Math.round(v);
+    if (field === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
+    else if (field === 'reps') set.reps = v == null || v < 0 ? '' : Math.round(v);
+    else setCardioField(set, field, t.value, t.dataset.kind);
   } else if (t.id && t.id.startsWith('wedit-') && ui.wdraft) {
     updateWorkoutDraftField(t);
   } else if (t.id === 'draft-name') {
@@ -1248,6 +1353,17 @@ document.addEventListener('input', (ev) => {
     state.settings.rest = Math.max(0, Math.round(+t.value || 0)); save();
   }
 });
+
+/** Store a typed cardio value: distance (in the display unit) → metres, time → seconds; invalid → ''. */
+function setCardioField(set, field, value, kind) {
+  if (field === 'distance') {
+    const v = num(String(value).replace(',', '.'));
+    set.distance = v == null || v < 0 ? '' : toStoredDistance(v, kind);
+  } else {
+    const sec = parseClock(value);
+    set.duration = sec == null ? '' : Math.round(sec);
+  }
+}
 
 function updateWorkoutDraftField(t) {
   const key = { 'wedit-name': 'name', 'wedit-location': 'location', 'wedit-notes': 'notes', 'wedit-date': 'date', 'wedit-start': 'startTime', 'wedit-end': 'endTime' }[t.id];

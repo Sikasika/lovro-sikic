@@ -107,6 +107,7 @@ function renderStatistics() {
         </div>`}
       ${renderHeatmap(idx)}
       ${renderSummary(idx)}
+      ${renderCardioSummary(idx)}
       ${renderFrequency(idx)}
       ${renderPerformance(idx)}
       ${renderBreakdown(idx)}
@@ -273,7 +274,7 @@ function openDaySheet(key) {
             ${it.w.location ? `<div class="day-meta">📍 ${esc(it.w.location)}</div>` : ''}
           </div>
           ${it.entries.map((e) => `
-            <div class="detail-set"><span>${esc(exName(e.exerciseId))}</span><span class="muted">${esc(summarizeSets(completedSets(e)))}</span></div>`).join('')}
+            <div class="detail-set"><span>${esc(exName(e.exerciseId))}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
           ${it.w.notes ? `<div class="day-notes">${esc(it.w.notes)}</div>` : ''}
         </div>`).join('') : `<div class="empty" style="padding:32px 16px">No workouts on this day.</div>`}
     </div>`);
@@ -318,6 +319,64 @@ function renderSummary(idx) {
       ${card(`${longest}<small> d</small>`, 'Longest day streak', p.label)}
     </div>
     ${f !== 'all' ? `<p class="stats-note">Showing workouts that include ${typeLabel(f).toLowerCase()}.</p>` : ''}`;
+}
+
+/* ----- 2b. Cardio summary ----- */
+
+/**
+ * Cardio activities in the summary period, counted per exercise even inside workouts
+ * that also contain strength exercises. Distances are never added up across activities;
+ * time is (it means the same thing for every activity).
+ */
+function renderCardioSummary(idx) {
+  const f = ui.stats.filter;
+  if (f !== 'all' && f !== 'cardio') return '';
+  const range = periodRange(ui.stats.period, idx.today, idx.items);
+  const period = STAT_PERIODS.find((x) => x.id === ui.stats.period);
+  const acts = new Map();
+  const workouts = new Set();
+  let totalSec = 0;
+  for (const it of idx.items) {
+    if (it.day < range.from || it.day > range.to) continue;
+    for (const e of it.entries) {
+      const kind = cardioKindOf(e.exerciseId);
+      if (!kind) continue;
+      workouts.add(it.w.id);
+      const a = acts.get(e.exerciseId) || { kind, sessions: new Set(), d: 0, t: 0, bd: 0, bt: 0 };
+      a.sessions.add(it.w.id);
+      completedSets(e).forEach((st) => {
+        const d = num(st.distance) || 0, t = num(st.duration) || 0;
+        a.d += d; a.t += t; totalSec += t;
+        if (d > 0 && t > 0) { a.bd += d; a.bt += t; }
+      });
+      acts.set(e.exerciseId, a);
+    }
+  }
+  if (!acts.size) {
+    return `
+      <div class="section-title">Cardio · ${period.label}</div>
+      <div class="card card-pad stats-empty">No cardio in this period.</div>`;
+  }
+  const rows = [...acts].sort((x, y) => y[1].sessions.size - x[1].sessions.size).map(([id, a]) => {
+    const parts = [`${a.sessions.size} session${a.sessions.size === 1 ? '' : 's'}`];
+    if (a.d) parts.push(fmtDistance(a.d, a.kind));
+    if (a.t) parts.push(fmtClock(a.t));
+    if (a.bd && a.bt) {
+      if (paceUnit(a.kind)) parts.push(`avg ${fmtClock(paceSeconds(a.bt, a.bd, a.kind))} ${paceUnit(a.kind)}`);
+      else if (CARDIO_KINDS[a.kind].speed) parts.push(`avg ${fmtNum(speedValue(a.bd, a.bt))} ${speedUnit()}`);
+    }
+    if (!a.d && !a.t) parts.push('no distance or time logged');
+    return `<div class="list-item"><div class="grow"><div>${esc(exName(id))}</div><div class="sub">${esc(parts.join(' · '))}</div></div></div>`;
+  }).join('');
+  return `
+    <div class="section-title">Cardio · ${period.label}</div>
+    <div class="stats-grid" style="margin-top:0">
+      <div class="stat"><div class="num">${workouts.size}</div><div class="lbl">Workouts with cardio</div></div>
+      <div class="stat"><div class="num">${totalSec ? fmtClock(totalSec) : '–'}</div><div class="lbl">Cardio time logged</div></div>
+      <div class="stat"><div class="num">${acts.size}</div><div class="lbl">Activit${acts.size === 1 ? 'y' : 'ies'}</div></div>
+    </div>
+    <div class="card" style="margin-top:10px">${rows}</div>
+    <p class="stats-note">Includes cardio done in mixed workouts. Averages use sets with both distance and time.</p>`;
 }
 
 /* ----- 3. Training frequency ----- */
@@ -417,20 +476,33 @@ function renderFrequency(idx) {
 
 const PERF_RANGES = [['3m', 'Last 3 months', 3], ['6m', 'Last 6 months', 6], ['12m', 'Last 12 months', 12], ['all', 'All time']];
 
+/*
+  Metrics per session (values from exerciseSessions in calc.js). `value` converts to the
+  display unit for charts, `text` formats a value for records, `chart` formats axis labels.
+  Durations and paces chart in minutes and are labelled as clock times.
+*/
 const PERF_METRICS = {
-  weight: { label: 'Heaviest weight', unit: () => unit(), weight: true },
-  e1rm: { label: 'Estimated 1-rep max', unit: () => unit(), weight: true },
-  volume: { label: 'Volume (weight × reps)', unit: () => unit(), weight: true },
-  reps: { label: 'Most reps in a set', unit: () => 'reps' },
-  totalreps: { label: 'Total reps', unit: () => 'reps' },
-  duration: { label: 'Session duration', unit: () => 'min' }
+  weight: { label: 'Heaviest weight', unit: () => unit(), value: (v) => toDisplayWeight(v), text: (v) => `${fmtWeight(v)} ${unit()}` },
+  e1rm: { label: 'Estimated 1-rep max', unit: () => unit(), value: (v) => toDisplayWeight(v), text: (v) => `${fmtWeight(v)} ${unit()}` },
+  volume: { label: 'Volume (weight × reps)', unit: () => unit(), value: (v) => toDisplayWeight(v), text: (v) => `${fmtWeight(v)} ${unit()}` },
+  reps: { label: 'Most reps in a set', unit: () => 'reps', value: (v) => v, text: (v) => fmtNum(v) },
+  totalreps: { label: 'Total reps', unit: () => 'reps', value: (v) => v, text: (v) => fmtNum(v) },
+  distance: { label: 'Distance', unit: (k) => distanceUnit(k), value: (v, k) => toDisplayDistance(v, k), text: (v, k) => fmtDistance(v, k) },
+  duration: { label: 'Duration', unit: () => 'h:mm:ss', value: (v) => v, text: (v) => fmtClock(v * 60), chart: (v) => fmtClock(v * 60) },
+  pace: { label: 'Pace', unit: (k) => paceUnit(k), value: (v, k) => paceSeconds(v, 1, k) / 60, text: (v, k) => `${fmtClock(paceSeconds(v, 1, k))} ${paceUnit(k)}`, chart: (v) => fmtClock(v * 60), best: 'Fastest pace' },
+  speed: { label: 'Speed', unit: () => speedUnit(), value: (v) => speedValue(v, 1), text: (v) => `${fmtNum(speedValue(v, 1))} ${speedUnit()}`, best: 'Top speed' }
 };
-/** A session's metric value in display units (weights converted from kg). */
-const perfValue = (m, v) => (PERF_METRICS[m].weight ? toDisplayWeight(v) : v);
 
-function metricsFor(type, sessions) {
+function metricsFor(type, sessions, kind) {
   const has = (m) => sessions.some((s) => s.v[m] != null);
-  const order = type === 'weights' ? ['weight', 'e1rm', 'volume', 'reps', 'totalreps', 'duration'] : ['duration', 'reps', 'totalreps'];
+  let order;
+  if (kind) {
+    order = ['distance', 'duration'];
+    if (paceUnit(kind)) order.push('pace');
+    if (CARDIO_KINDS[kind].speed) order.push('speed');
+    order.push('reps', 'totalreps');
+  } else if (type === 'weights') order = ['weight', 'e1rm', 'volume', 'reps', 'totalreps', 'duration'];
+  else order = ['duration', 'reps', 'totalreps'];
   return order.filter(has);
 }
 
@@ -465,14 +537,15 @@ function renderPerformance(idx) {
   const ex = list.find((x) => x.id === ui.stats.perfEx) || list[0];
   ui.stats.perfEx = ex.id;
   const allSessions = exerciseSessions(idx.items, ex.id);
-  const metrics = metricsFor(ex.type, allSessions);
+  const kind = cardioKindOf(ex.id);
+  const metrics = metricsFor(ex.type, allSessions, kind);
   const metric = metrics.includes(ui.stats.perfMetric) ? ui.stats.perfMetric : metrics[0];
   ui.stats.perfMetric = metric || null;
 
   const range = PERF_RANGES.find((r) => r[0] === ui.stats.perfRange) || PERF_RANGES[3];
   const from = range[2] ? sAddMonths(idx.today, -range[2]) : null;
   const sessions = allSessions.filter((s) => !from || s.it.day >= from);
-  const points = metric ? sessions.filter((s) => s.v[metric] != null).map((s) => ({ date: s.date, value: perfValue(metric, s.v[metric]) })) : [];
+  const points = metric ? sessions.filter((s) => s.v[metric] != null).map((s) => ({ date: s.date, value: PERF_METRICS[metric].value(s.v[metric], kind) })) : [];
 
   // All-time personal records for this exercise.
   const prs = metrics.map((m) => {
@@ -482,13 +555,13 @@ function renderPerformance(idx) {
       const top = s.best.filter((x) => x.w === s.v.weight).reduce((a, x) => (x.r > a ? x.r : a), 0);
       if (top) extra = ` × ${top}`;
     }
-    const val = m === 'duration' ? fmtDuration(s.v[m] * 60000) : PERF_METRICS[m].weight ? `${fmtWeight(s.v[m])} ${esc(unit())}${extra}` : fmtNum(s.v[m]);
-    return `<div class="stat"><div class="num pr-num">${val}</div><div class="lbl">${PERF_METRICS[m].label}</div><div class="stat-hint">${fmtDate(s.date, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>`;
+    const val = esc(PERF_METRICS[m].text(s.v[m], kind)) + extra;
+    return `<div class="stat"><div class="num pr-num">${val}</div><div class="lbl">${PERF_METRICS[m].best || PERF_METRICS[m].label}</div><div class="stat-hint">${fmtDate(s.date, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>`;
   }).join('');
 
   const groups = STAT_TYPES.map((t) => ({ t, exs: list.filter((x) => x.type === t.id) })).filter((g) => g.exs.length);
-  const isEndurance = ex.type === 'cardio';
-  const metricUnit = metric ? PERF_METRICS[metric].unit() : '';
+  const metricUnit = metric ? PERF_METRICS[metric].unit(kind) : '';
+  const hasDist = allSessions.some((x) => x.v.distance != null), hasPace = allSessions.some((x) => x.v.pace != null);
 
   return `
     <div class="section-title">Performance</div>
@@ -512,14 +585,15 @@ function renderPerformance(idx) {
     <div class="card card-pad" style="margin-top:12px">
       ${metric ? `
         <div class="stats-chart-title">${PERF_METRICS[metric].label} per session (${esc(metricUnit)})</div>
-        ${points.length ? lineChart(points) : '<div class="empty" style="padding:24px">No sessions in this range.</div>'}
+        ${points.length ? lineChart(points, PERF_METRICS[metric].chart || fmtNum) : '<div class="empty" style="padding:24px">No sessions in this range.</div>'}
         ${metric === 'e1rm' ? `<p class="stats-note" style="margin:6px 0 0">Estimated with the Epley formula from sets of 1–${E1RM_MAX_REPS} reps.</p>` : ''}
-        ${metric === 'duration' ? '<p class="stats-note" style="margin:6px 0 0">Only workouts that contained just this exercise, so the time is really its own.</p>' : ''}`
-        : `<div class="stats-empty">There's no measurable data for ${esc(exName(ex.id))} yet${isEndurance ? '. Duration is shown only for workouts that contain just this exercise.' : '.'}</div>`}
+        ${metric === 'duration' ? '<p class="stats-note" style="margin:6px 0 0">Time logged for this exercise. For older entries without a logged time, the workout\'s time is used only if it contained just this exercise.</p>' : ''}
+        ${metric === 'pace' || metric === 'speed' ? '<p class="stats-note" style="margin:6px 0 0">From sets with both distance and time logged.</p>' : ''}`
+        : `<div class="stats-empty">There's no measurable data for ${esc(exName(ex.id))} yet.${kind ? ' Log distance or time when you do it.' : ''}</div>`}
     </div>
     ${metrics.length ? `<div class="section-title">Personal records · ${esc(exName(ex.id))}</div><div class="stats-grid">${prs}</div>` : ''}
-    ${isEndurance ? `
-      <p class="stats-note">Distance, pace and speed aren't recorded when logging ${esc(exName(ex.id))}, so those charts aren't available.</p>` : ''}
+    ${kind && !hasDist ? `<p class="stats-note">No distance logged for ${esc(exName(ex.id))} yet, so there's no distance${paceUnit(kind) || CARDIO_KINDS[kind].speed ? ', pace or speed' : ''} to show.</p>` : ''}
+    ${kind && hasDist && !hasPace && (paceUnit(kind) || CARDIO_KINDS[kind].speed) ? `<p class="stats-note">Log distance and time in the same set to see ${paceUnit(kind) ? 'pace' : 'speed'}.</p>` : ''}
     ${bodyWeight}`;
 }
 
