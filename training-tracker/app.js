@@ -1787,8 +1787,33 @@ setInterval(() => {
   if (el && state.active) el.textContent = fmtDuration(Date.now() - new Date(state.active.start));
 }, 1000);
 
+// Offline support. A new version is installed in the background (see sw.js); when it
+// takes over, offer a reload. All data is saved, so reloading never loses anything.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return; // first install: nothing to update
+    showUpdateNotice();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // Home-screen apps are often resumed rather than reopened: check for updates then too.
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+  });
+  window.reloadForUpdate = () => { reloading = true; location.reload(); };
+}
+
+function showUpdateNotice() {
+  if ($('#update-notice')) return;
+  const el = document.createElement('div');
+  el.id = 'update-notice';
+  el.className = 'update-notice';
+  el.setAttribute('role', 'status');
+  el.innerHTML = '<span>New version ready</span><button type="button">Reload</button>';
+  el.querySelector('button').addEventListener('click', () => window.reloadForUpdate());
+  document.body.appendChild(el);
 }
 
 render();

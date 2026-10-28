@@ -120,9 +120,12 @@
   border-radius: 9px;
   background: var(--input);
   padding: 6px 10px;
-  font-size: 14px;
+  font-size: 16px; /* 16px+ stops iOS Safari zooming in on focus */
   color: var(--text);
 }
+/* Heatmap day details: exercise name + category on one line, sets below. */
+.detail-set.day-ex { display: block; }
+.detail-set.day-ex > span { display: block; max-width: none; white-space: normal; text-align: left; }
 .chart .avg-line { stroke: var(--text); stroke-width: 1.2; stroke-dasharray: 4 3; opacity: 0.7; }
 .chart .avg-lbl { fill: var(--text); }
 

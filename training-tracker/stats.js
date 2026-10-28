@@ -274,7 +274,7 @@ function openDaySheet(key) {
             ${it.w.location ? `<div class="day-meta">📍 ${esc(it.w.location)}</div>` : ''}
           </div>
           ${it.entries.map((e) => `
-            <div class="detail-set"><span>${esc(exName(e.exerciseId))} ${catTag(e.exerciseId)}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
+            <div class="detail-set day-ex"><span>${esc(exName(e.exerciseId))} ${catTag(e.exerciseId)}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
           ${it.w.notes ? `<div class="day-notes">${esc(it.w.notes)}</div>` : ''}
         </div>`).join('') : `<div class="empty" style="padding:32px 16px">No workouts on this day.</div>`}
     </div>`);
