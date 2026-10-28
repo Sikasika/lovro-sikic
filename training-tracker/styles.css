@@ -1,15 +1,25 @@
+/*
+  Colors: warm earth tones from Sanzo Wada's "A Dictionary of Color
+  Combinations" (Seigensha), based on combination #343 —
+  Burnt Sienna #ae5224, Ivory Buff #ebd3a2, Deep Grayish Olive #635a3a —
+  with Vandyke Brown #4b3317, Light Brownish Olive #806e4b,
+  English Red #d96629, Vandyke Red #82241f, Ecru #c2ae93 and
+  Buffy Citrine #96874d. Backgrounds are light/dark tints of these.
+*/
 :root {
-  --bg: #f2f2f7;
-  --card: #ffffff;
-  --text: #000000;
-  --muted: #6e6e73;
-  --separator: rgba(60, 60, 67, 0.18);
-  --accent: #ff6a1a;
-  --accent-soft: rgba(255, 106, 26, 0.14);
-  --success: #34c759;
-  --danger: #ff3b30;
-  --input: #eeeef0;
-  --bar: rgba(249, 249, 249, 0.92);
+  --bg: #f6eedc;            /* Ivory Buff, lightened */
+  --card: #fffaf0;
+  --text: #4b3317;          /* Vandyke Brown */
+  --muted: #806e4b;         /* Light Brownish Olive */
+  --separator: rgba(75, 51, 23, 0.16);
+  --accent: #ae5224;        /* Burnt Sienna */
+  --accent-soft: rgba(174, 82, 36, 0.14);
+  --on-accent: #ffffff;
+  --success: #635a3a;       /* Deep Grayish Olive */
+  --success-soft: rgba(99, 90, 58, 0.14);
+  --danger: #82241f;        /* Vandyke Red */
+  --input: #efe3c9;         /* Ivory Buff, softened */
+  --bar: rgba(246, 238, 220, 0.92);
   --radius: 12px;
   --tabbar-h: 56px;
   color-scheme: light dark;
@@ -17,14 +27,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --card: #1c1c1e;
-    --text: #ffffff;
-    --muted: #98989f;
-    --separator: rgba(84, 84, 88, 0.6);
-    --accent-soft: rgba(255, 106, 26, 0.22);
-    --input: #2c2c2e;
-    --bar: rgba(22, 22, 24, 0.92);
+    --bg: #1a130c;          /* Vandyke Brown, darkened */
+    --card: #2a2016;
+    --text: #f3e6cc;        /* Ivory Buff, lightened */
+    --muted: #c2ae93;       /* Ecru */
+    --separator: rgba(235, 211, 162, 0.16);
+    --accent: #d96629;      /* English Red */
+    --accent-soft: rgba(217, 102, 41, 0.2);
+    --on-accent: #1a130c;
+    --success: #96874d;     /* Buffy Citrine */
+    --success-soft: rgba(150, 135, 77, 0.2);
+    --danger: #e2625e;      /* Eugenia Red */
+    --input: #3a2d20;
+    --bar: rgba(26, 19, 12, 0.92);
   }
 }
 
@@ -148,7 +163,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   width: 100%;
 }
@@ -207,7 +222,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
 .sets td { padding: 4px 4px; text-align: center; }
 .sets td:first-child, .sets th:first-child { padding-left: 16px; width: 44px; }
 .sets td:last-child, .sets th:last-child { padding-right: 16px; width: 56px; }
-.sets tr.done td { background: rgba(52, 199, 89, 0.12); }
+.sets tr.done td { background: var(--success-soft); }
 .sets input {
   width: 100%;
   max-width: 96px;
@@ -245,7 +260,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
   gap: 6px;
   padding: 6px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: 999px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   z-index: 15;
@@ -254,7 +269,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
 .rest button {
   border: 0;
   background: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: 999px;
   height: 36px;
   min-width: 44px;

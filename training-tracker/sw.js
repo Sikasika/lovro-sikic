@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
-const CACHE = 'training-tracker-v2';
+const CACHE = 'training-tracker-v3';
 const ASSETS = [
   './',
   './index.html',
