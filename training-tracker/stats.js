@@ -274,7 +274,7 @@ function openDaySheet(key) {
             ${it.w.location ? `<div class="day-meta">📍 ${esc(it.w.location)}</div>` : ''}
           </div>
           ${it.entries.map((e) => `
-            <div class="detail-set"><span>${esc(exName(e.exerciseId))}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
+            <div class="detail-set"><span>${esc(exName(e.exerciseId))} ${catTag(e.exerciseId)}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
           ${it.w.notes ? `<div class="day-notes">${esc(it.w.notes)}</div>` : ''}
         </div>`).join('') : `<div class="empty" style="padding:32px 16px">No workouts on this day.</div>`}
     </div>`);
@@ -537,7 +537,8 @@ function renderPerformance(idx) {
   const ex = list.find((x) => x.id === ui.stats.perfEx) || list[0];
   ui.stats.perfEx = ex.id;
   const allSessions = exerciseSessions(idx.items, ex.id);
-  const kind = cardioKindOf(ex.id);
+  // Distance/time logged before an exercise was moved out of Cardio still chart as cardio.
+  const kind = cardioKindOf(ex.id) || (allSessions.some((x) => x.v.distance != null) && !allSessions.some((x) => x.v.weight != null) ? 'other' : null);
   const metrics = metricsFor(ex.type, allSessions, kind);
   const metric = metrics.includes(ui.stats.perfMetric) ? ui.stats.perfMetric : metrics[0];
   ui.stats.perfMetric = metric || null;
@@ -559,7 +560,8 @@ function renderPerformance(idx) {
     return `<div class="stat"><div class="num pr-num">${val}</div><div class="lbl">${PERF_METRICS[m].best || PERF_METRICS[m].label}</div><div class="stat-hint">${fmtDate(s.date, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>`;
   }).join('');
 
-  const groups = STAT_TYPES.map((t) => ({ t, exs: list.filter((x) => x.type === t.id) })).filter((g) => g.exs.length);
+  // Grouped by exercise category (archived exercises stay listed: their history is real).
+  const groups = allCategories().map((c) => ({ label: c, exs: list.filter((x) => catOf(exById(x.id)) === c) })).filter((g) => g.exs.length);
   const metricUnit = metric ? PERF_METRICS[metric].unit(kind) : '';
   const hasDist = allSessions.some((x) => x.v.distance != null), hasPace = allSessions.some((x) => x.v.pace != null);
 
@@ -568,7 +570,7 @@ function renderPerformance(idx) {
     <div class="card">
       <label class="field"><span>Exercise</span>
         <select id="stats-perf-ex" aria-label="Exercise">
-          ${groups.map((g) => `<optgroup label="${g.t.label}">${g.exs.map((x) => `<option value="${x.id}" ${x.id === ex.id ? 'selected' : ''}>${esc(exName(x.id))}</option>`).join('')}</optgroup>`).join('')}
+          ${groups.map((g) => `<optgroup label="${esc(g.label)}">${g.exs.map((x) => `<option value="${x.id}" ${x.id === ex.id ? 'selected' : ''}>${esc(exName(x.id))}${exById(x.id)?.archived ? ' (archived)' : ''}</option>`).join('')}</optgroup>`).join('')}
         </select>
       </label>
       <label class="field"><span>Metric</span>

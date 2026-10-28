@@ -404,7 +404,7 @@ textarea.notes {
 }
 .detail-set .muted { color: var(--muted); }
 .detail-set { gap: 12px; }
-.detail-set > span:first-child { flex: none; white-space: nowrap; }
+.detail-set > span:first-child { flex: none; white-space: nowrap; max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
 .detail-set > span:last-child { text-align: right; }
 
 .toast {
@@ -524,3 +524,50 @@ textarea.notes {
   padding: 0;
 }
 .field input:not([type="number"]) { flex: 1; }
+
+/* ---------- Exercise library ---------- */
+.cat-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--input);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.cat-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 6px;
+  margin-bottom: 4px;
+  scrollbar-width: none;
+}
+.cat-chips::-webkit-scrollbar { display: none; }
+.cat-chip {
+  flex: none;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.cat-chip.on { background: var(--accent); color: var(--on-accent); }
+.cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cat-option {
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--separator);
+}
+.cat-option.on { background: var(--accent); color: var(--on-accent); box-shadow: none; }

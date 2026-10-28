@@ -172,9 +172,12 @@ function lastEntryFor(exerciseId) {
   return null;
 }
 
+const hasCardioValues = (s) => (num(s?.distance) || 0) > 0 || (num(s?.duration) || 0) > 0;
+
 function summarizeSets(sets, kind = null) {
   return sets.map((s) => {
-    if (kind && ((num(s.distance) || 0) > 0 || (num(s.duration) || 0) > 0)) return fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind);
+    // Distance/time are shown even if the exercise was later moved out of Cardio.
+    if (hasCardioValues(s)) return fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind || 'other');
     return num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`;
   }).join(', ');
 }
@@ -493,7 +496,7 @@ function renderEntry(entry, i) {
   return `
     <div class="card exercise-card" style="margin-top:12px" data-entry="${i}">
       <div class="ex-head">
-        <span class="ex-name">${esc(exName(entry.exerciseId))}</span>
+        <span><span class="ex-name">${esc(exName(entry.exerciseId))}</span>${catTag(entry.exerciseId)}</span>
         <button class="link" data-action="entry-menu" data-entry="${i}" aria-label="Exercise options">•••</button>
       </div>
       ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets, ck))}</div>` : ''}
@@ -555,7 +558,7 @@ function renderHistory() {
 function detailSets(e) {
   const sets = completedSets(e);
   if (!sets.length) return '<div class="detail-set muted">No completed sets</div>';
-  const ck = cardioKindOf(e.exerciseId);
+  const ck = cardioKindOf(e.exerciseId) || (sets.some(hasCardioValues) ? 'other' : null);
   const lines = sets.map((s, j) => {
     const d = num(s.distance) || 0, t = num(s.duration) || 0;
     const text = ck && (d || t)
@@ -601,7 +604,7 @@ function renderWorkoutDetail(w) {
       <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${w.location ? ` · 📍 ${esc(w.location)}` : ''}</div>
       ${w.entries.map((e) => `
         <div class="card" style="margin-bottom:10px;padding:6px 0">
-          <div class="detail-set" style="font-weight:600;color:var(--accent)">${esc(exName(e.exerciseId))}</div>
+          <div class="detail-set" style="font-weight:600;color:var(--accent)"><span>${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
           ${detailSets(e)}
         </div>`).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
@@ -964,51 +967,96 @@ function openSheet(html) {
 function closeSheet() {
   ui.draft = null; // drafts only live while their editor is open
   ui.wdraft = null;
+  ui.exdraft = null;
   $('#sheet').classList.add('hidden');
   $('#sheet-backdrop').classList.add('hidden');
   $('#sheet').innerHTML = '';
 }
 
+/* ---------- Exercise library ---------- */
+
+const CATEGORIES = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Cardio', 'Sports', 'Other'];
+const catOf = (e) => String(e?.category || '').trim() || 'Other';
+/** The standard categories plus any custom ones found in older data (kept, never renamed). */
+const allCategories = () => [...new Set([...CATEGORIES, ...state.exercises.map(catOf)])];
+const catTag = (exerciseId) => `<span class="cat-tag">${esc(catOf(exById(exerciseId)))}</span>`;
+
+/** How many saved workouts and templates (and the workout in progress) use an exercise. */
+function exerciseUsage(id) {
+  const uses = (w) => (w?.entries || []).some((e) => e.exerciseId === id);
+  return {
+    workouts: state.workouts.filter(uses).length,
+    templates: state.templates.filter(uses).length,
+    active: uses(state.active)
+  };
+}
+const usageText = (u) => {
+  const parts = [];
+  if (u.workouts) parts.push(`${u.workouts} workout${u.workouts === 1 ? '' : 's'}`);
+  if (u.templates) parts.push(`${u.templates} template${u.templates === 1 ? '' : 's'}`);
+  if (u.active) parts.push('the workout in progress');
+  return parts.length ? `Used in ${parts.join(', ')}` : 'Not used yet';
+};
+
+function matchesQuery(e, q) {
+  return !q || e.name.toLowerCase().includes(q) || catOf(e).toLowerCase().includes(q);
+}
+
+function categoryChips(selected, action, cats) {
+  return `<div class="cat-chips" role="group" aria-label="Filter by category">
+    ${['All', ...cats].map((c) => {
+      const v = c === 'All' ? 'all' : c;
+      return `<button class="cat-chip ${selected === v ? 'on' : ''}" data-action="${action}" data-v="${esc(v)}" aria-pressed="${selected === v}">${esc(c)}</button>`;
+    }).join('')}
+  </div>`;
+}
+
+function groupByCategory(list) {
+  const groups = new Map();
+  list.sort((a, b) => allCategories().indexOf(catOf(a)) - allCategories().indexOf(catOf(b)) || a.name.localeCompare(b.name))
+    .forEach((e) => { if (!groups.has(catOf(e))) groups.set(catOf(e), []); groups.get(catOf(e)).push(e); });
+  return [...groups];
+}
+
+/** Exercise list for picking an exercise (workout, template, or workout editor). Archived ones are hidden. */
 function exercisePickerHtml(query = '', mode = 'pick') {
   const q = query.trim().toLowerCase();
-  const list = state.exercises
-    .filter((e) => !q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
-    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-  const groups = new Map();
-  list.forEach((e) => { if (!groups.has(e.category)) groups.set(e.category, []); groups.get(e.category).push(e); });
-  const exact = state.exercises.some((e) => e.name.toLowerCase() === q);
+  const active = state.exercises.filter((e) => !e.archived);
+  const cat = ui.pickCat || 'all';
+  const list = active.filter((e) => matchesQuery(e, q) && (cat === 'all' || catOf(e) === cat));
+  const exact = state.exercises.find((e) => e.name.toLowerCase() === q);
+  const cats = allCategories().filter((c) => active.some((e) => catOf(e) === c));
   return `
+    ${categoryChips(cat, 'pick-cat', cats)}
     ${q && !exact ? `
       <div class="card" style="margin-bottom:8px">
         <button class="list-item" data-action="create-exercise" data-mode="${mode}" style="color:var(--accent)">＋ Create “${esc(query.trim())}”</button>
       </div>` : ''}
-    ${[...groups].map(([cat, exs]) => `
-      <div class="section-title">${esc(cat)}</div>
+    ${exact?.archived ? `<div class="card card-pad stats-empty" style="margin-bottom:8px">“${esc(exact.name)}” is archived. Restore it in Settings → Manage exercises to use it again.</div>` : ''}
+    ${groupByCategory(list).map(([c, exs]) => `
+      <div class="section-title">${esc(c)}</div>
       <div class="card">
-        ${exs.map((e) => mode !== 'manage'
-          ? `<button class="list-item" data-action="pick-exercise" data-id="${e.id}" data-mode="${mode}"><span class="grow">${esc(e.name)}</span></button>`
-          : `<div class="list-item"><span class="grow">${esc(e.name)}</span><button class="link danger" data-action="delete-exercise" data-id="${e.id}">Delete</button></div>`
-        ).join('')}
-      </div>`).join('') || (q ? '' : '<div class="empty">No exercises</div>')}
+        ${exs.map((e) => `<button class="list-item" data-action="pick-exercise" data-id="${e.id}" data-mode="${mode}"><span class="grow">${esc(e.name)}</span></button>`).join('')}
+      </div>`).join('') || (q ? '' : '<div class="empty">No exercises in this category</div>')}
   `;
 }
 
 function openExercisePicker(mode = 'pick') {
+  ui.pickCat = 'all';
   openSheet(`
     <div class="sheet-head">
       <span style="width:52px"></span>
-      <h2>${mode === 'manage' ? 'Exercises' : 'Add Exercise'}</h2>
+      <h2>Add Exercise</h2>
       <button class="link" data-action="${{ template: 'back-to-template', wedit: 'back-to-wedit' }[mode] || 'close-sheet'}">${mode === 'template' || mode === 'wedit' ? 'Back' : 'Done'}</button>
     </div>
     <div class="sheet-body">
-      <input class="search" id="exercise-search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}">
+      <input class="search" id="exercise-search" type="search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}" aria-label="Search exercises">
       <div id="exercise-list">${exercisePickerHtml('', mode)}</div>
     </div>
   `);
 }
 
 function openCategoryPicker(name, mode) {
-  const cats = [...new Set([...state.exercises.map((e) => e.category), 'Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Cardio', 'Other'])];
   openSheet(`
     <div class="sheet-head">
       <span style="width:52px"></span>
@@ -1017,10 +1065,114 @@ function openCategoryPicker(name, mode) {
     </div>
     <div class="sheet-body">
       <div class="card">
-        ${cats.map((c) => `<button class="list-item" data-action="choose-category" data-category="${esc(c)}" data-name="${esc(name)}" data-mode="${mode}"><span class="grow">${esc(c)}</span></button>`).join('')}
+        ${allCategories().map((c) => `<button class="list-item" data-action="choose-category" data-category="${esc(c)}" data-name="${esc(name)}" data-mode="${mode}"><span class="grow">${esc(c)}</span></button>`).join('')}
       </div>
     </div>
   `);
+}
+
+/* ----- Settings → Manage exercises ----- */
+
+function exerciseManagerList() {
+  const q = (ui.exm.q || '').trim().toLowerCase();
+  const cat = ui.exm.cat;
+  const match = (e) => matchesQuery(e, q) && (cat === 'all' || catOf(e) === cat);
+  const active = state.exercises.filter((e) => !e.archived && match(e));
+  const archived = state.exercises.filter((e) => e.archived && match(e));
+  const row = (e) => `
+    <button class="list-item" data-action="exm-edit" data-id="${e.id}">
+      <div class="grow"><div class="truncate">${esc(e.name)}</div><div class="sub">${esc(usageText(exerciseUsage(e.id)))}</div></div>
+      <span class="chev">›</span>
+    </button>`;
+  return `
+    ${categoryChips(cat, 'exm-cat', allCategories())}
+    ${groupByCategory(active).map(([c, exs]) => `
+      <div class="section-title">${esc(c)}</div>
+      <div class="card">${exs.map(row).join('')}</div>`).join('') || '<div class="empty" style="padding:24px">No matching exercises</div>'}
+    ${archived.length ? `
+      <div class="section-title">Archived</div>
+      <div class="card">${archived.sort((a, b) => a.name.localeCompare(b.name)).map(row).join('')}</div>
+      <p class="tpl-hint">Archived exercises are hidden when picking exercises but stay in your history, statistics and templates.</p>` : ''}`;
+}
+
+function openExerciseManager() {
+  ui.exm = ui.exm || { q: '', cat: 'all' };
+  openSheet(`
+    <div class="sheet-head">
+      <button class="link" data-action="exm-new">＋ New</button>
+      <h2>Exercises</h2>
+      <button class="link" data-action="close-sheet">Done</button>
+    </div>
+    <div class="sheet-body">
+      <input class="search" id="exm-search" type="search" placeholder="Search exercises" value="${esc(ui.exm.q)}" autocomplete="off" aria-label="Search exercises">
+      <div id="exm-list">${exerciseManagerList()}</div>
+    </div>
+  `);
+}
+
+/** Create (id null) or edit an exercise. Changes are kept in ui.exdraft until Save. */
+function openExerciseEditor(id) {
+  if (id !== undefined) {
+    const ex = id ? exById(id) : null;
+    ui.exdraft = { id: ex?.id || null, name: ex?.name || '', category: ex ? catOf(ex) : (ui.exm?.cat !== 'all' && ui.exm?.cat) || 'Other' };
+  }
+  const d = ui.exdraft;
+  const ex = d.id ? exById(d.id) : null;
+  const usage = d.id ? exerciseUsage(d.id) : null;
+  const used = usage && (usage.workouts || usage.templates || usage.active);
+  const wasCardio = ex && catOf(ex) === 'Cardio';
+  const cardioChange = ex && used && wasCardio !== (d.category === 'Cardio');
+  openSheet(`
+    <div class="sheet-head">
+      <button class="link" data-action="exd-cancel">Cancel</button>
+      <h2>${d.id ? 'Edit Exercise' : 'New Exercise'}</h2>
+      <button class="link" data-action="exd-save" style="font-weight:600">Save</button>
+    </div>
+    <div class="sheet-body">
+      <div class="card">
+        <label class="field"><span>Name</span><input id="exd-name" value="${esc(d.name)}" placeholder="e.g. Hip Thrust" autocomplete="off"></label>
+      </div>
+      <div class="section-title">Category</div>
+      <div class="cat-grid" role="radiogroup" aria-label="Category">
+        ${allCategories().map((c) => `<button class="cat-option ${d.category === c ? 'on' : ''}" role="radio" aria-checked="${d.category === c}" data-action="exd-cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}
+      </div>
+      <p class="tpl-hint">${d.category === 'Cardio' ? 'Cardio exercises log distance and time.' : d.category === 'Sports' ? 'Sports count as their own activity type in Statistics.' : 'Logged as weight × reps.'}</p>
+      ${cardioChange ? `<div class="card card-pad stats-empty" style="margin-top:10px">${wasCardio
+        ? 'New sets will be logged as weight × reps. Distance and time already logged stay in your history and are still shown.'
+        : 'New sets will be logged as distance and time. Weight and reps already logged stay in your history.'}</div>` : ''}
+      ${d.id ? `
+        <div class="section-title">Usage</div>
+        <div class="card card-pad stats-empty">${esc(usageText(usage))}${used ? '. Renaming or changing the category updates it everywhere; logged sets are not changed.' : '.'}</div>
+        <div class="btn-row">
+          ${ex.archived
+            ? '<button class="btn secondary" data-action="exd-restore">Restore Exercise</button>'
+            : used
+              ? '<button class="btn secondary" data-action="exd-archive">Archive Exercise</button>'
+              : '<button class="btn danger" data-action="exd-delete">Delete Exercise</button>'}
+        </div>
+        ${!ex.archived && used ? '<p class="tpl-hint">This exercise is in use, so it can\'t be deleted without breaking those records. Archiving hides it from exercise lists but keeps your history, statistics and templates intact.</p>' : ''}` : ''}
+    </div>
+  `);
+}
+
+function saveExerciseDraft() {
+  const d = ui.exdraft;
+  const name = d.name.trim().replace(/\s+/g, ' ');
+  if (!name) { alert('Please enter a name.'); return; }
+  const clash = state.exercises.find((e) => e.id !== d.id && e.name.trim().toLowerCase() === name.toLowerCase());
+  if (clash) { alert(`There is already an exercise called “${clash.name}”${clash.archived ? ' (archived)' : ''}.`); return; }
+  if (d.id) {
+    const ex = exById(d.id);
+    ex.name = name;
+    ex.category = d.category;
+  } else {
+    state.exercises.push({ id: uid(), name, category: d.category });
+  }
+  save();
+  ui.exdraft = null;
+  openExerciseManager();
+  render();
+  toast(d.id ? 'Exercise updated' : 'Exercise added');
 }
 
 /* ---------- Workout actions ---------- */
@@ -1247,19 +1399,41 @@ document.addEventListener('click', (ev) => {
       if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: ex.id, sets: newLoggedSets() }); openWorkoutEditor(); }
       else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: defaultPlannedSets(ex.id) }); openTemplateEditor(); }
       else if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
-      else openExercisePicker('manage');
+      else { ui.exm = { q: '', cat: 'all' }; openExerciseManager(); }
       break;
     }
-    case 'delete-exercise': {
-      const usedIn = (list) => list.some((w) => w.entries.some((e) => e.exerciseId === id));
-      const used = usedIn(state.workouts) || usedIn(state.templates) || state.active?.entries.some((e) => e.exerciseId === id);
-      if (used) { alert('This exercise is used in your workouts or templates and cannot be deleted.'); return; }
-      state.exercises = state.exercises.filter((e) => e.id !== id);
-      save();
-      $('#exercise-list').innerHTML = exercisePickerHtml($('#exercise-search').value, 'manage');
+    case 'pick-cat': {
+      ui.pickCat = el.dataset.v;
+      const search = $('#exercise-search');
+      $('#exercise-list').innerHTML = exercisePickerHtml(search.value, search.dataset.mode);
       break;
     }
-    case 'manage-exercises': openExercisePicker('manage'); break;
+    case 'exm-cat': ui.exm.cat = el.dataset.v; $('#exm-list').innerHTML = exerciseManagerList(); break;
+    case 'exm-new': openExerciseEditor(null); setTimeout(() => $('#exd-name')?.focus(), 300); break;
+    case 'exm-edit': openExerciseEditor(id); break;
+    case 'exd-cat': ui.exdraft.category = el.dataset.v; openExerciseEditor(); break;
+    case 'exd-cancel': ui.exdraft = null; openExerciseManager(); break;
+    case 'exd-save': saveExerciseDraft(); break;
+    case 'exd-archive': {
+      const ex = exById(ui.exdraft.id);
+      if (!confirm(`Archive “${ex.name}”? It will be hidden when picking exercises. ${usageText(exerciseUsage(ex.id))}, and those records stay as they are.`)) break;
+      ex.archived = true; save(); ui.exdraft = null; openExerciseManager(); render(); toast('Exercise archived');
+      break;
+    }
+    case 'exd-restore': {
+      const ex = exById(ui.exdraft.id);
+      delete ex.archived; save(); ui.exdraft = null; openExerciseManager(); render(); toast('Exercise restored');
+      break;
+    }
+    case 'exd-delete': {
+      const ex = exById(ui.exdraft.id);
+      const u = exerciseUsage(ex.id);
+      if (u.workouts || u.templates || u.active) { alert('This exercise is in use and can only be archived.'); break; }
+      if (!confirm(`Delete “${ex.name}”? It isn't used anywhere, so no history is affected.`)) break;
+      state.exercises = state.exercises.filter((e) => e.id !== ex.id); save(); ui.exdraft = null; openExerciseManager(); render(); toast('Exercise deleted');
+      break;
+    }
+    case 'manage-exercises': ui.exm = { q: '', cat: 'all' }; openExerciseManager(); break;
     case 'toggle-set': {
       const set = state.active.entries[ei].sets[si];
       set.done = !set.done;
@@ -1347,6 +1521,11 @@ document.addEventListener('input', (ev) => {
     ui.draft.location = t.value;
   } else if (t.id === 'workout-notes') {
     state.active.notes = t.value; save();
+  } else if (t.id === 'exm-search') {
+    ui.exm.q = t.value;
+    $('#exm-list').innerHTML = exerciseManagerList();
+  } else if (t.id === 'exd-name' && ui.exdraft) {
+    ui.exdraft.name = t.value;
   } else if (t.id === 'exercise-search') {
     $('#exercise-list').innerHTML = exercisePickerHtml(t.value, t.dataset.mode);
   } else if (t.id === 'rest-seconds') {
