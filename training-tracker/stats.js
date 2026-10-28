@@ -4,11 +4,10 @@
    Statistics tab: activity heatmap, summary, frequency,
    performance progress and training breakdown.
    Loaded after app.js and reuses its state, helpers
-   (completedSets, e1rm, exById, fmtDate, startOfWeek,
-   lineChart, summarizeSets, openSheet, ...) and render().
-   Everything is calculated from state.workouts (finished
-   workouts only; the workout in progress is excluded).
-   Days are local calendar days of the workout's start time.
+   (exById, fmtDate, startOfWeek, lineChart, summarizeSets,
+   openSheet, ...) and render(). Data rules and shared
+   calculations (completed workouts, valid sets, streaks,
+   e1RM, sessions, units) come from calc.js.
    ========================================================= */
 
 const STAT_TYPES = [
@@ -39,21 +38,13 @@ ui.stats = {
   perfRange: 'all'
 };
 
-/* ---------- Local-date helpers (DST-safe: built from y/m/d parts) ---------- */
+/* ---------- Local-date helpers (others are in calc.js) ---------- */
 
-const sDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const sAddDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 function sAddMonths(d, n) {
   const first = new Date(d.getFullYear(), d.getMonth() + n, 1);
   const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
   return new Date(first.getFullYear(), first.getMonth(), Math.min(d.getDate(), last));
 }
-const sKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-function sFromKey(k) {
-  const [y, m, d] = k.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-const sDaysBetween = (a, b) => Math.round((sDay(b) - sDay(a)) / 864e5);
 const fmtHours = (min) => `${(Math.round((min / 60) * 10) / 10).toLocaleString()} h`;
 const fmtMin = (min) => (min == null ? 'Unknown duration' : fmtDuration(min * 60000));
 
@@ -71,28 +62,18 @@ function entryType(entry) {
 }
 
 /**
- * Normalised list of finished workouts. Each item has its local day,
- * the activity types it contains, a primary type (most completed sets)
- * and its duration in minutes (null when start/end is missing or invalid).
+ * Completed workouts (shared rules in calc.js) plus the activity types each
+ * contains and its primary type (most completed sets).
  */
 function statsIndex() {
-  const today = sDay(new Date());
-  const items = [];
-  let skipped = 0;
-  for (const w of state.workouts || []) {
-    const start = new Date(w.start);
-    const entries = (w.entries || []).filter((e) => Array.isArray(e.sets) && completedSets(e).length);
-    if (isNaN(start) || !entries.length || sDay(start) > today) { skipped++; continue; }
+  const { items: base, skipped, today } = completedWorkouts();
+  const items = base.map((it) => {
     const setsByType = {};
-    entries.forEach((e) => { const t = entryType(e); setsByType[t] = (setsByType[t] || 0) + completedSets(e).length; });
+    it.entries.forEach((e) => { const t = entryType(e); setsByType[t] = (setsByType[t] || 0) + completedSets(e).length; });
     const types = STAT_TYPES.map((t) => t.id).filter((t) => setsByType[t]);
     const primary = types.reduce((a, b) => (setsByType[b] > setsByType[a] ? b : a));
-    const end = new Date(w.end);
-    const min = !isNaN(end) && end >= start ? (end - start) / 60000 : null;
-    const day = sDay(start);
-    items.push({ w, start, day, key: sKey(day), types, primary, min, entries });
-  }
-  items.sort((a, b) => a.start - b.start);
+    return { ...it, types, primary };
+  });
   return { items, skipped, today };
 }
 
@@ -287,7 +268,7 @@ function openDaySheet(key) {
             <div class="day-chips">${it.types.map((t) => `<span class="type-chip"><i class="sw" style="background:var(--heat-${t})"></i>${typeLabel(t)}</span>`).join('')}</div>
             <div class="day-meta">
               ${time(it.start)}${it.min != null ? ` – ${time(new Date(it.w.end))}` : ''} · ${fmtMin(it.min)} · ${workoutSetCount(it.w)} set${workoutSetCount(it.w) === 1 ? '' : 's'}
-              ${workoutVolume(it.w) ? ` · ${fmtNum(workoutVolume(it.w))} ${esc(unit())} volume` : ''}
+              ${workoutVolume(it.w) ? ` · ${fmtWeight(workoutVolume(it.w))} ${esc(unit())} volume` : ''}
             </div>
             ${it.w.location ? `<div class="day-meta">📍 ${esc(it.w.location)}</div>` : ''}
           </div>
@@ -314,18 +295,9 @@ function renderSummary(idx) {
   const thisWeek = all.filter((it) => it.day >= weekStart).length;
   const thisMonth = all.filter((it) => it.day >= monthStart).length;
 
-  // Streaks count calendar days with at least one workout.
-  const allDays = new Set(all.map((it) => it.key));
-  let current = 0;
-  let d = allDays.has(sKey(today)) ? today : sAddDays(today, -1);
-  while (allDays.has(sKey(d))) { current++; d = sAddDays(d, -1); }
-  let longest = 0, run = 0, prev = null;
-  [...new Set(inPeriod.map((it) => it.key))].sort().forEach((k) => {
-    const day = sFromKey(k);
-    run = prev && sDaysBetween(prev, day) === 1 ? run + 1 : 1;
-    longest = Math.max(longest, run);
-    prev = day;
-  });
+  // Day streaks: calendar days with at least one workout (see calc.js).
+  const current = dayStreak(all, today);
+  const longest = longestDayStreak(inPeriod);
   const weeks = Math.max(1, range.days / 7);
   const avg = inPeriod.length / weeks;
   const p = STAT_PERIODS.find((x) => x.id === ui.stats.period);
@@ -342,8 +314,8 @@ function renderSummary(idx) {
       ${card(fmtNum(avg), 'Avg / week', p.label)}
       ${card(thisWeek, 'This week', 'Since Monday')}
       ${card(thisMonth, 'This month', today.toLocaleDateString(undefined, { month: 'long' }))}
-      ${card(`${current}<small> d</small>`, 'Current streak', 'Days in a row')}
-      ${card(`${longest}<small> d</small>`, 'Longest streak', p.label)}
+      ${card(`${current}<small> d</small>`, 'Day streak', 'Days in a row')}
+      ${card(`${longest}<small> d</small>`, 'Longest day streak', p.label)}
     </div>
     ${f !== 'all' ? `<p class="stats-note">Showing workouts that include ${typeLabel(f).toLowerCase()}.</p>` : ''}`;
 }
@@ -446,35 +418,15 @@ function renderFrequency(idx) {
 const PERF_RANGES = [['3m', 'Last 3 months', 3], ['6m', 'Last 6 months', 6], ['12m', 'Last 12 months', 12], ['all', 'All time']];
 
 const PERF_METRICS = {
-  weight: { label: 'Heaviest weight', unit: () => unit() },
-  e1rm: { label: 'Estimated 1-rep max', unit: () => unit() },
-  volume: { label: 'Volume (weight × reps)', unit: () => unit() },
+  weight: { label: 'Heaviest weight', unit: () => unit(), weight: true },
+  e1rm: { label: 'Estimated 1-rep max', unit: () => unit(), weight: true },
+  volume: { label: 'Volume (weight × reps)', unit: () => unit(), weight: true },
   reps: { label: 'Most reps in a set', unit: () => 'reps' },
   totalreps: { label: 'Total reps', unit: () => 'reps' },
   duration: { label: 'Session duration', unit: () => 'min' }
 };
-
-/** Sessions (one per workout) for an exercise, with the metric values that can be derived. */
-function exerciseSessions(items, exerciseId) {
-  const out = [];
-  for (const it of items) {
-    const entries = it.entries.filter((e) => e.exerciseId === exerciseId);
-    if (!entries.length) continue;
-    const sets = entries.flatMap(completedSets).map((s) => ({ w: num(s.weight) || 0, r: num(s.reps) || 0 }));
-    const weighted = sets.filter((s) => s.w > 0);
-    const forE1rm = weighted.filter((s) => s.r >= 1 && s.r <= 12);
-    const v = {};
-    if (weighted.length) v.weight = Math.max(...weighted.map((s) => s.w));
-    if (forE1rm.length) v.e1rm = Math.max(...forE1rm.map((s) => e1rm(s.w, s.r)));
-    if (weighted.some((s) => s.r > 0)) v.volume = sets.reduce((sum, s) => sum + s.w * s.r, 0);
-    if (sets.some((s) => s.r > 0)) { v.reps = Math.max(...sets.map((s) => s.r)); v.totalreps = sets.reduce((sum, s) => sum + s.r, 0); }
-    // Duration only when the whole workout was this one exercise, so the time is really its own.
-    const onlyThis = it.entries.every((e) => e.exerciseId === exerciseId);
-    if (onlyThis && it.min != null) v.duration = it.min;
-    out.push({ it, date: it.start.toISOString(), v, best: sets });
-  }
-  return out;
-}
+/** A session's metric value in display units (weights converted from kg). */
+const perfValue = (m, v) => (PERF_METRICS[m].weight ? toDisplayWeight(v) : v);
 
 function metricsFor(type, sessions) {
   const has = (m) => sessions.some((s) => s.v[m] != null);
@@ -520,18 +472,17 @@ function renderPerformance(idx) {
   const range = PERF_RANGES.find((r) => r[0] === ui.stats.perfRange) || PERF_RANGES[3];
   const from = range[2] ? sAddMonths(idx.today, -range[2]) : null;
   const sessions = allSessions.filter((s) => !from || s.it.day >= from);
-  const points = metric ? sessions.filter((s) => s.v[metric] != null).map((s) => ({ date: s.date, value: s.v[metric] })) : [];
+  const points = metric ? sessions.filter((s) => s.v[metric] != null).map((s) => ({ date: s.date, value: perfValue(metric, s.v[metric]) })) : [];
 
   // All-time personal records for this exercise.
-  const best = (m) => allSessions.filter((s) => s.v[m] != null).reduce((a, s) => (!a || s.v[m] > a.v[m] ? s : a), null);
   const prs = metrics.map((m) => {
-    const s = best(m);
+    const s = bestSession(allSessions, m);
     let extra = '';
     if (m === 'weight') {
       const top = s.best.filter((x) => x.w === s.v.weight).reduce((a, x) => (x.r > a ? x.r : a), 0);
       if (top) extra = ` × ${top}`;
     }
-    const val = m === 'duration' ? fmtDuration(s.v[m] * 60000) : `${fmtNum(s.v[m])}${m === 'reps' || m === 'totalreps' ? '' : ` ${esc(unit())}`}${extra}`;
+    const val = m === 'duration' ? fmtDuration(s.v[m] * 60000) : PERF_METRICS[m].weight ? `${fmtWeight(s.v[m])} ${esc(unit())}${extra}` : fmtNum(s.v[m]);
     return `<div class="stat"><div class="num pr-num">${val}</div><div class="lbl">${PERF_METRICS[m].label}</div><div class="stat-hint">${fmtDate(s.date, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>`;
   }).join('');
 
@@ -562,7 +513,7 @@ function renderPerformance(idx) {
       ${metric ? `
         <div class="stats-chart-title">${PERF_METRICS[metric].label} per session (${esc(metricUnit)})</div>
         ${points.length ? lineChart(points) : '<div class="empty" style="padding:24px">No sessions in this range.</div>'}
-        ${metric === 'e1rm' ? '<p class="stats-note" style="margin:6px 0 0">Estimated with the Epley formula from sets of 1–12 reps.</p>' : ''}
+        ${metric === 'e1rm' ? `<p class="stats-note" style="margin:6px 0 0">Estimated with the Epley formula from sets of 1–${E1RM_MAX_REPS} reps.</p>` : ''}
         ${metric === 'duration' ? '<p class="stats-note" style="margin:6px 0 0">Only workouts that contained just this exercise, so the time is really its own.</p>' : ''}`
         : `<div class="stats-empty">There's no measurable data for ${esc(exName(ex.id))} yet${isEndurance ? '. Duration is shown only for workouts that contain just this exercise.' : '.'}</div>`}
     </div>

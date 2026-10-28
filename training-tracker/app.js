@@ -6,6 +6,8 @@
    ========================================================= */
 
 const STORAGE_KEY = 'training-tracker.v1';
+// Untouched copy of the data as it was before the v2 upgrade (weights converted to kg).
+const BACKUP_KEY = 'training-tracker.v1.backup-before-v2';
 
 const DEFAULT_EXERCISES = [
   ['Bench Press', 'Chest'], ['Incline Dumbbell Press', 'Chest'], ['Push-up', 'Chest'], ['Chest Fly', 'Chest'],
@@ -28,19 +30,63 @@ function defaultState() {
     workouts: [],
     templates: [],
     active: null,
-    settings: { unit: 'kg', rest: 90 }
+    settings: { unit: 'kg', rest: 90 },
+    schemaVersion: SCHEMA_VERSION
   };
 }
 
+/**
+ * Bring data saved by an older version up to the current format.
+ * Returns a new object; the input is left unchanged.
+ * v1 → v2: v1 stored weights exactly as typed, in whichever unit was selected
+ * (the unit switch only changed the label). v2 stores kilograms, so v1 data
+ * saved with "lb" selected is converted; "kg" data keeps its numbers.
+ */
+function migrate(data) {
+  const out = JSON.parse(JSON.stringify(data));
+  if ((Number(out.schemaVersion) || 1) < 2) {
+    if (out.settings?.unit === 'lb') {
+      // Runs during startup, before app.js helpers such as num() exist.
+      const convert = (w) => (w?.entries || []).forEach((e) => (e?.sets || []).forEach((set) => {
+        if (set?.weight === '' || set?.weight == null) return;
+        const v = Number(String(set.weight).replace(',', '.'));
+        if (Number.isFinite(v)) set.weight = v * KG_PER_LB;
+      }));
+      (out.workouts || []).forEach(convert);
+      if (out.active) convert(out.active);
+    }
+    out.schemaVersion = 2;
+  }
+  return out;
+}
+
+let loadWarning = null;
+
 function load() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const data = JSON.parse(raw);
+      let data = JSON.parse(raw);
+      if ((Number(data.schemaVersion) || 1) < SCHEMA_VERSION) {
+        // Keep the original before changing anything (the oldest copy wins).
+        try {
+          if (!localStorage.getItem(BACKUP_KEY)) localStorage.setItem(BACKUP_KEY, raw);
+        } catch (e) {
+          loadWarning = 'Your data was updated to a new format, but there was no room to keep a safety copy. Please export a backup in Settings.';
+        }
+        data = migrate(data);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* saved on the next change */ }
+      }
       return { ...defaultState(), ...data, settings: { ...defaultState().settings, ...data.settings } };
     }
   } catch (e) {
     console.error('Could not load data', e);
+    // Never let unreadable data be overwritten: keep it under a separate key.
+    if (raw) {
+      try { localStorage.setItem(`${STORAGE_KEY}.unreadable-${Date.now()}`, raw); } catch (err) { /* ignore */ }
+      loadWarning = 'Your saved data could not be read. A copy was kept on this device, so please don\'t erase anything; ask for help restoring it.';
+    }
   }
   return defaultState();
 }
@@ -85,10 +131,7 @@ function defaultWorkoutName() {
   return 'Evening Workout';
 }
 
-/** Estimated one-rep max (Epley). */
-const e1rm = (w, r) => (r <= 1 ? w : w * (1 + r / 30));
-
-const completedSets = (entry) => entry.sets.filter((s) => s.done !== false && (num(s.reps) || num(s.weight)));
+// Set validity, e1rm and unit conversion live in calc.js.
 
 function workoutVolume(w) {
   return w.entries.reduce((sum, e) => sum + completedSets(e).reduce((s, set) => s + (num(set.weight) || 0) * (num(set.reps) || 0), 0), 0);
@@ -108,7 +151,7 @@ function lastEntryFor(exerciseId) {
 }
 
 function summarizeSets(sets) {
-  return sets.map((s) => (num(s.weight) ? `${fmtNum(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`)).join(', ');
+  return sets.map((s) => (num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`)).join(', ');
 }
 
 function toast(msg) {
@@ -307,7 +350,7 @@ function renderEntry(entry, i) {
             return `
             <tr class="${s.done ? 'done' : ''}" data-set="${j}">
               <td class="set-num">${j + 1}</td>
-              <td><input inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(s.weight)}" placeholder="${prev?.weight ?? ''}" aria-label="Weight"></td>
+              <td><input inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(s.weight)))}" placeholder="${esc(inputWeight(num(prev?.weight)))}" aria-label="Weight (${esc(unit())})"></td>
               <td><input inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${prev?.reps ?? ''}" aria-label="Reps"></td>
               <td><button class="check" data-action="toggle-set" data-entry="${i}" data-set="${j}" aria-label="Mark set done">✓</button></td>
             </tr>`;
@@ -361,14 +404,14 @@ function renderWorkoutDetail(w) {
       <div class="stats">
         <div class="stat"><div class="num">${fmtDuration(new Date(w.end) - new Date(w.start))}</div><div class="lbl">Duration</div></div>
         <div class="stat"><div class="num">${workoutSetCount(w)}</div><div class="lbl">Sets</div></div>
-        <div class="stat"><div class="num">${fmtNum(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
+        <div class="stat"><div class="num">${fmtWeight(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
       </div>
       <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${w.location ? ` · 📍 ${esc(w.location)}` : ''}</div>
       ${w.entries.map((e) => `
         <div class="card" style="margin-bottom:10px;padding:6px 0">
           <div class="detail-set" style="font-weight:600;color:var(--accent)">${esc(exName(e.exerciseId))}</div>
           ${completedSets(e).map((s, j) => `
-            <div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${num(s.weight) ? `${fmtNum(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}</span></div>`).join('') || '<div class="detail-set muted">No completed sets</div>'}
+            <div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${num(s.weight) ? `${fmtWeight(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}</span></div>`).join('') || '<div class="detail-set muted">No completed sets</div>'}
         </div>`).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
       <div class="btn-row">
@@ -389,39 +432,29 @@ function startOfWeek(d) {
 }
 
 function renderProgress() {
-  if (!state.workouts.length) {
+  const { items, today } = completedWorkouts();
+  if (!items.length) {
     return `<div class="empty"><div class="big">📈</div>Finish a workout to see your progress.</div>`;
   }
-  const thisWeek = startOfWeek(new Date());
-  const weekWorkouts = state.workouts.filter((w) => new Date(w.start) >= thisWeek);
-
-  // Weekly streak: consecutive weeks (ending this or last week) with at least one workout.
-  const weeks = new Set(state.workouts.map((w) => startOfWeek(w.start).getTime()));
-  let streak = 0;
-  const cursor = new Date(thisWeek);
-  if (!weeks.has(cursor.getTime())) cursor.setDate(cursor.getDate() - 7);
-  while (weeks.has(cursor.getTime())) { streak++; cursor.setDate(cursor.getDate() - 7); }
+  const thisWeek = startOfWeek(today);
+  const weekCount = items.filter((it) => it.day >= thisWeek).length;
+  const streak = weekStreak(items, today);
 
   // Workouts per week, last 8 weeks.
-  const bars = [];
-  for (let i = 7; i >= 0; i--) {
-    const start = new Date(thisWeek); start.setDate(start.getDate() - i * 7);
-    const end = new Date(start); end.setDate(end.getDate() + 7);
-    bars.push({
-      label: start.toLocaleDateString(undefined, { day: 'numeric', month: 'numeric' }),
-      value: state.workouts.filter((w) => { const d = new Date(w.start); return d >= start && d < end; }).length
-    });
-  }
+  const bars = weekBuckets(today, 8).map((b) => ({
+    label: b.s.toLocaleDateString(undefined, { day: 'numeric', month: 'numeric' }),
+    value: items.filter((it) => it.day >= b.s && it.day < b.e).length
+  }));
 
   // Exercises that have history.
-  const used = state.exercises.filter((ex) => state.workouts.some((w) => w.entries.some((e) => e.exerciseId === ex.id && completedSets(e).length)));
+  const used = state.exercises.filter((ex) => items.some((it) => it.entries.some((e) => e.exerciseId === ex.id)));
   if (!ui.progressExercise || !used.some((e) => e.id === ui.progressExercise)) ui.progressExercise = used[0]?.id ?? null;
 
   return `
     <div class="stats" style="margin-top:12px">
-      <div class="stat"><div class="num">${weekWorkouts.length}</div><div class="lbl">This week</div></div>
-      <div class="stat"><div class="num">${streak}</div><div class="lbl">Week streak</div></div>
-      <div class="stat"><div class="num">${state.workouts.length}</div><div class="lbl">Total workouts</div></div>
+      <div class="stat"><div class="num">${weekCount}</div><div class="lbl">This week</div></div>
+      <div class="stat"><div class="num">${streak}</div><div class="lbl">Week streak (weeks in a row)</div></div>
+      <div class="stat"><div class="num">${items.length}</div><div class="lbl">Total workouts</div></div>
     </div>
 
     <div class="section-title">Workouts per week</div>
@@ -437,38 +470,33 @@ function renderProgress() {
           </select>
         </label>
       </div>
-      ${renderExerciseProgress(ui.progressExercise)}` : ''}
+      ${renderExerciseProgress(ui.progressExercise, items)}` : ''}
   `;
 }
 
-function renderExerciseProgress(exerciseId) {
-  const points = [];
-  let bestWeight = 0, bestReps = 0, best1rm = 0;
-  for (const w of [...state.workouts].reverse()) {
-    const sets = w.entries.filter((e) => e.exerciseId === exerciseId).flatMap(completedSets);
-    if (!sets.length) continue;
-    let top = 0;
-    for (const s of sets) {
-      const weight = num(s.weight) || 0, reps = num(s.reps) || 0;
-      bestWeight = Math.max(bestWeight, weight);
-      bestReps = Math.max(bestReps, reps);
-      top = Math.max(top, weight ? e1rm(weight, reps) : reps);
-    }
-    best1rm = Math.max(best1rm, top);
-    points.push({ date: w.start, value: top });
-  }
-  const bodyweight = bestWeight === 0;
+function renderExerciseProgress(exerciseId, items) {
+  const sessions = exerciseSessions(items, exerciseId);
+  const weighted = sessions.some((s) => s.v.weight != null);
+  const metric = weighted ? 'e1rm' : 'reps';
+  const points = sessions
+    .filter((s) => s.v[metric] != null)
+    .map((s) => ({ date: s.date, value: metric === 'e1rm' ? toDisplayWeight(s.v.e1rm) : s.v.reps }));
+  const heaviest = bestSession(sessions, 'weight');
+  const best1rm = bestSession(sessions, 'e1rm');
+  const mostReps = bestSession(sessions, 'reps');
   return `
     <div class="card card-pad" style="margin-top:12px">
-      <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:6px">${bodyweight ? 'Best reps per session' : `Estimated 1-rep max per session (${esc(unit())})`}</div>
-      ${lineChart(points)}
+      <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:6px">${weighted ? `Estimated 1-rep max per session (${esc(unit())})` : 'Most reps in a set per session'}</div>
+      ${weighted && !points.length
+        ? `<div class="empty" style="padding:24px">The estimate needs a set of 1–${E1RM_MAX_REPS} reps with weight.</div>`
+        : lineChart(points)}
     </div>
     <div class="stats" style="margin-top:12px">
-      ${bodyweight
-        ? `<div class="stat"><div class="num">${bestReps}</div><div class="lbl">Best reps</div></div>`
-        : `<div class="stat"><div class="num">${fmtNum(bestWeight)}</div><div class="lbl">Heaviest (${esc(unit())})</div></div>
-           <div class="stat"><div class="num">${fmtNum(best1rm)}</div><div class="lbl">Best est. 1RM</div></div>`}
-      <div class="stat"><div class="num">${points.length}</div><div class="lbl">Sessions</div></div>
+      ${weighted
+        ? `<div class="stat"><div class="num">${fmtWeight(heaviest.v.weight)}</div><div class="lbl">Heaviest (${esc(unit())})</div></div>
+           <div class="stat"><div class="num">${best1rm ? fmtWeight(best1rm.v.e1rm) : '–'}</div><div class="lbl">Best est. 1RM</div></div>`
+        : `<div class="stat"><div class="num">${mostReps ? mostReps.v.reps : '–'}</div><div class="lbl">Most reps in a set</div></div>`}
+      <div class="stat"><div class="num">${sessions.length}</div><div class="lbl">Sessions</div></div>
     </div>
   `;
 }
@@ -543,6 +571,7 @@ function renderSettings() {
     <div class="card">
       <button class="list-item" data-action="export"><span class="grow">Export backup</span><span class="chev">›</span></button>
       <button class="list-item" data-action="import"><span class="grow">Import backup</span><span class="chev">›</span></button>
+      ${hasPreUpdateCopy() ? '<button class="list-item" data-action="export-pre-update"><span class="grow">Download pre-update copy</span><span class="chev">›</span></button>' : ''}
       <button class="list-item" data-action="reset" style="color:var(--danger)"><span class="grow">Erase all data</span></button>
     </div>
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
@@ -722,9 +751,24 @@ function stopRest() {
 
 /* ---------- Backup ---------- */
 
-async function exportData() {
-  const json = JSON.stringify({ app: 'training-tracker', version: 1, exportedAt: new Date().toISOString(), ...state }, null, 2);
-  const filename = `training-backup-${new Date().toISOString().slice(0, 10)}.json`;
+function hasPreUpdateCopy() {
+  try { return !!localStorage.getItem(BACKUP_KEY); } catch (e) { return false; }
+}
+
+function exportData() {
+  const json = JSON.stringify({ app: 'training-tracker', exportedAt: new Date().toISOString(), ...state }, null, 2);
+  return shareFile(json, `training-backup-${new Date().toISOString().slice(0, 10)}.json`);
+}
+
+/** The original data from before the v2 upgrade. It can be imported again like any backup. */
+function exportPreUpdateCopy() {
+  let raw = null;
+  try { raw = localStorage.getItem(BACKUP_KEY); } catch (e) { /* ignore */ }
+  if (!raw) { toast('No pre-update copy on this device'); return; }
+  return shareFile(raw, 'training-backup-before-update.json');
+}
+
+async function shareFile(json, filename) {
   const file = new File([json], filename, { type: 'application/json' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Training backup' }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -740,10 +784,11 @@ function importData(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(reader.result);
-      if (!Array.isArray(data.workouts) || !Array.isArray(data.exercises)) throw new Error('Invalid file');
+      const parsed = JSON.parse(reader.result);
+      if (!Array.isArray(parsed.workouts) || !Array.isArray(parsed.exercises)) throw new Error('Invalid file');
+      const data = migrate(parsed); // older backups store weights as typed; convert like stored data
       if (!confirm(`Replace current data with backup (${data.workouts.length} workouts)?`)) return;
-      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings } };
+      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings }, schemaVersion: data.schemaVersion };
       save();
       render();
       toast('Backup imported');
@@ -873,6 +918,7 @@ document.addEventListener('click', (ev) => {
     case 'close-sheet': closeSheet(); break;
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
     case 'export': exportData(); break;
+    case 'export-pre-update': exportPreUpdateCopy(); break;
     case 'import': $('#import-file').click(); break;
     case 'reset':
       if (confirm('Erase ALL workouts and custom exercises? Export a backup first if you want to keep them.')) {
@@ -885,7 +931,15 @@ document.addEventListener('click', (ev) => {
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.dataset.field && state.active) {
-    state.active.entries[+t.dataset.entry].sets[+t.dataset.set][t.dataset.field] = t.value.replace(',', '.');
+    const set = state.active.entries[+t.dataset.entry].sets[+t.dataset.set];
+    const value = t.value.replace(',', '.');
+    if (t.dataset.field === 'weight') {
+      // Typed in the selected unit, stored in kg.
+      const v = num(value);
+      set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
+    } else {
+      set[t.dataset.field] = value;
+    }
     save();
   } else if (t.id === 'workout-name') {
     state.active.name = t.value; save();
@@ -925,3 +979,4 @@ if ('serviceWorker' in navigator) {
 }
 
 render();
+if (loadWarning) setTimeout(() => alert(loadWarning), 300);
