@@ -125,7 +125,7 @@ function haptic() {
 
 /* ---------- Rendering ---------- */
 
-const TITLES = { workout: 'Workout', history: 'History', progress: 'Progress', settings: 'Settings' };
+const TITLES = { workout: 'Workout', history: 'History', progress: 'Progress', statistics: 'Statistics', settings: 'Settings' };
 
 function render() {
   $('#title').textContent = TITLES[ui.tab];
@@ -136,6 +136,7 @@ function render() {
   if (ui.tab === 'workout') view.innerHTML = state.active ? renderActive(action) : renderStart();
   if (ui.tab === 'history') view.innerHTML = renderHistory();
   if (ui.tab === 'progress') view.innerHTML = renderProgress();
+  if (ui.tab === 'statistics') view.innerHTML = renderStatistics();
   if (ui.tab === 'settings') view.innerHTML = renderSettings();
 }
 
