@@ -155,8 +155,9 @@ function defaultWorkoutName() {
 
 // Set validity, e1rm and unit conversion live in calc.js.
 
+/** Weight × reps over completed sets, excluding warm-ups. */
 function workoutVolume(w) {
-  return w.entries.reduce((sum, e) => sum + completedSets(e).reduce((s, set) => s + (num(set.weight) || 0) * (num(set.reps) || 0), 0), 0);
+  return w.entries.reduce((sum, e) => sum + completedSets(e).filter((set) => set.type !== 'warmup').reduce((s, set) => s + (num(set.weight) || 0) * (num(set.reps) || 0), 0), 0);
 }
 
 function workoutSetCount(w) {
@@ -175,10 +176,12 @@ function lastEntryFor(exerciseId) {
 const hasCardioValues = (s) => (num(s?.distance) || 0) > 0 || (num(s?.duration) || 0) > 0;
 
 function summarizeSets(sets, kind = null) {
+  // Warm-ups and drop sets are marked "W" / "D". Distance/time are shown even if the
+  // exercise was later moved out of Cardio.
   return sets.map((s) => {
-    // Distance/time are shown even if the exercise was later moved out of Cardio.
-    if (hasCardioValues(s)) return fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind || 'other');
-    return num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`;
+    const prefix = setType(s) === 'working' ? '' : `${SET_TYPE_INFO[setType(s)].short} `;
+    if (hasCardioValues(s)) return prefix + fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind || 'other');
+    return prefix + (num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`);
   }).join(', ');
 }
 
@@ -287,7 +290,7 @@ function locationOptions() {
 /** Planned sets of a template entry, in the current format (never mutates the template). */
 function templateSets(entry) {
   if (Array.isArray(entry?.sets)) {
-    return entry.sets.map((s) => ({ weight: num(s?.weight) ?? '', reps: num(s?.reps) ?? '', ...cardioFields(s) }));
+    return entry.sets.map((s) => ({ weight: num(s?.weight) ?? '', reps: num(s?.reps) ?? '', ...cardioFields(s), ...typeField(s) }));
   }
   const n = Math.max(1, Math.min(50, Math.round(Number(entry?.sets)) || 1));
   return Array.from({ length: n }, () => ({ weight: '', reps: '' }));
@@ -301,8 +304,9 @@ function entriesToTemplate(entries) {
     exerciseId: e.exerciseId,
     sets: (e.sets.length ? e.sets : [emptyPlannedSet()]).map((s) => {
       const w = num(s.weight), r = num(s.reps);
-      return { weight: w != null && w >= 0 ? w : '', reps: r != null && r >= 0 ? r : '', ...cardioFields(s) };
-    })
+      return { weight: w != null && w >= 0 ? w : '', reps: r != null && r >= 0 ? r : '', ...cardioFields(s), ...typeField(s) };
+    }),
+    ...entryExtras(e)
   }));
 }
 
@@ -315,7 +319,7 @@ function defaultPlannedSets(exerciseId) {
 /** Start editing a copy of a template (or a new one); the original is untouched until Save. */
 function beginTemplateDraft(t) {
   ui.draft = t
-    ? { id: t.id, name: t.name || '', location: t.location || '', entries: t.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e) })) }
+    ? { id: t.id, name: t.name || '', location: t.location || '', entries: t.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e), ...entryExtras(e) })) }
     : { id: null, name: '', location: '', entries: [] };
   ui.draftOriginal = JSON.stringify(ui.draft);
 }
@@ -331,8 +335,9 @@ function cancelTemplateDraft() {
 
 function openTemplateEditor() {
   const d = ui.draft;
-  const scroll = $('#sheet .sheet-body')?.scrollTop ?? 0;
   const isEditor = !!$('#sheet .template-editor');
+  const scroll = isEditor ? ($('#sheet .sheet-body')?.scrollTop ?? 0) : ui.returnScroll;
+  ui.returnScroll = null;
   const u = esc(unit());
   openSheet(`
     <div class="sheet-head">
@@ -355,8 +360,8 @@ function openTemplateEditor() {
       ${d.id ? `<div class="btn-row"><button class="btn danger" data-action="delete-template" data-id="${d.id}">Delete Template</button></div>` : ''}
     </div>
   `);
-  // Keep the scroll position when the editor re-renders after a change.
-  if (isEditor) $('#sheet .sheet-body').scrollTop = scroll;
+  // Keep the scroll position when the editor re-renders after a change or a set menu.
+  if (scroll != null) $('#sheet .sheet-body').scrollTop = scroll;
 }
 
 /**
@@ -369,25 +374,30 @@ function editorExerciseCards(entries, kind) {
   const u = esc(unit());
   const field = kind === 'draft' ? 'data-tfield' : 'data-wfield';
   const target = kind === 'draft' ? 'Target ' : '';
+  const letters = supersetLetters(entries);
   return entries.map((e, i) => {
     const name = esc(exName(e.exerciseId));
     const ck = cardioKindOf(e.exerciseId);
+    const labels = setLabels(e.sets);
+    const ss = letters[i];
+    const ssCont = ss && letters[i - 1] === ss;
     return `
-    <div class="card exercise-card tpl-card" style="margin-top:12px">
+    <div class="card exercise-card tpl-card${ss ? ' superset' : ''}" style="margin-top:${ssCont ? 4 : 12}px">
       <div class="ex-head">
-        <span class="ex-name">${name}</span>
+        <span class="ex-name">${ss ? `<span class="ss-badge">Superset ${ss}</span>` : ''}${name}</span>
         <span class="tpl-ex-actions">
           <button class="icon-btn" data-action="${kind}-move-ex" data-entry="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${name} up">↑</button>
           <button class="icon-btn" data-action="${kind}-move-ex" data-entry="${i}" data-dir="1" ${i === entries.length - 1 ? 'disabled' : ''} aria-label="Move ${name} down">↓</button>
           <button class="icon-btn danger" data-action="${kind}-remove" data-entry="${i}" aria-label="Remove ${name}">✕</button>
         </span>
       </div>
+      <div class="ex-note-row"><input class="ex-note-input" data-note="${kind}" data-entry="${i}" value="${esc(e.note || '')}" placeholder="${kind === 'draft' ? 'Exercise note, e.g. pause at the bottom' : 'Exercise note'}" aria-label="Note for ${name}"></div>
       <table class="sets tpl-sets">
         <thead><tr><th>Set</th>${ck ? `<th>${target}${distanceUnit(ck)}</th><th>${target}time</th>` : `<th>${target}${u}</th><th>${target}reps</th>`}<th><span class="visually-hidden">Actions</span></th></tr></thead>
         <tbody>
           ${e.sets.map((st, j) => `
-          <tr>
-            <td class="set-num">${j + 1}</td>
+          <tr class="type-${setType(st)}">
+            <td class="set-num"><button class="set-label ${setType(st)}" data-action="set-menu" data-ctx="${kind}" data-entry="${i}" data-set="${j}" aria-label="${setType(st) === 'working' ? `Set ${labels[j]}` : SET_TYPE_INFO[setType(st)].label}. Change type, move or delete">${labels[j]}</button></td>
             ${ck ? `
             <td><input inputmode="decimal" ${field}="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(st.distance), ck))}" placeholder="–" aria-label="${name} set ${j + 1} ${target.toLowerCase()}distance (${distanceUnit(ck)})"></td>
             <td><input inputmode="decimal" ${field}="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(st.duration))}" placeholder="min" aria-label="${name} set ${j + 1} ${target.toLowerCase()}time, minutes or mm:ss"></td>` : `
@@ -402,7 +412,9 @@ function editorExerciseCards(entries, kind) {
       </table>
       <div class="ex-actions">
         <button class="link" data-action="${kind}-add-set" data-entry="${i}">＋ Add Set</button>
-        <span class="sub">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>
+        ${i < entries.length - 1 && (!e.superset || entries[i + 1].superset !== e.superset)
+          ? `<button class="link" data-action="${kind}-link" data-entry="${i}">Superset with next</button>`
+          : e.superset ? `<button class="link" data-action="${kind}-unlink" data-entry="${i}">Unlink</button>` : `<span class="sub">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>`}
       </div>
     </div>`;
   }).join('');
@@ -414,9 +426,15 @@ function editEntries(entries, op, ei, si, dir) {
     const to = ei + dir;
     if (to < 0 || to >= entries.length) return false;
     [entries[ei], entries[to]] = [entries[to], entries[ei]];
+    normalizeSupersets(entries);
+  } else if (op === 'link') {
+    linkWithNext(entries, ei);
+  } else if (op === 'unlink') {
+    unlinkSuperset(entries, ei);
   } else if (op === 'remove') {
     if (!confirm(`Remove ${exName(entries[ei].exerciseId)}?`)) return false;
     entries.splice(ei, 1);
+    normalizeSupersets(entries);
   } else if (op === 'add-set') {
     const sets = entries[ei].sets;
     sets.push({ ...sets[sets.length - 1] });
@@ -437,7 +455,7 @@ function saveTemplate() {
     id: d.id || uid(),
     name: d.name.trim() || 'My Template',
     location: (d.location || '').trim(),
-    entries: d.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e) }))
+    entries: normalizeSupersets(d.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e), ...entryExtras(e) })))
   };
   const i = state.templates.findIndex((t) => t.id === d.id);
   if (i >= 0) state.templates[i] = tpl;
@@ -455,6 +473,128 @@ function saveAsTemplate(w) {
   state.templates.push({ id: uid(), name: w.name, location: w.location || '', entries: entriesToTemplate(w.entries) });
   save();
   toast(`Saved “${w.name}” as a template`);
+}
+
+/* ----- Set types, exercise notes and supersets ----- */
+
+/*
+  Optional fields (absent in older data, which keeps working unchanged):
+    set.type      'warmup' | 'drop'   (no type = working set)
+    set.target    { weight, reps, distance, duration } planned by a template
+    entry.note    text note for that exercise in that workout/template
+    entry.superset  group id shared by consecutive exercises done as a superset
+*/
+const SET_TYPE_INFO = { working: { short: '', label: 'Working set' }, warmup: { short: 'W', label: 'Warm-up' }, drop: { short: 'D', label: 'Drop set' } };
+const setType = (s) => (s?.type === 'warmup' || s?.type === 'drop' ? s.type : 'working');
+const typeField = (s) => (setType(s) === 'working' ? {} : { type: setType(s) });
+
+/** Set labels: working sets numbered 1..n, warm-ups "W", drop sets "D". */
+function setLabels(sets) {
+  let n = 0;
+  return sets.map((s) => (setType(s) === 'working' ? String(++n) : SET_TYPE_INFO[setType(s)].short));
+}
+
+/** "Superset A", "B", ... for each entry in order of first appearance (null when not grouped). */
+function supersetLetters(entries) {
+  const seen = new Map();
+  return entries.map((e) => {
+    if (!e.superset) return null;
+    if (!seen.has(e.superset)) seen.set(e.superset, String.fromCharCode(65 + (seen.size % 26)));
+    return seen.get(e.superset);
+  });
+}
+
+/** Keep superset groups valid: consecutive, at least two exercises each. */
+function normalizeSupersets(entries) {
+  const used = new Set();
+  let i = 0;
+  while (i < entries.length) {
+    const id = entries[i].superset;
+    let j = i;
+    while (id && j + 1 < entries.length && entries[j + 1].superset === id) j++;
+    if (id) {
+      if (j === i) delete entries[i].superset;
+      else if (used.has(id)) { const fresh = uid(); for (let k = i; k <= j; k++) entries[k].superset = fresh; used.add(fresh); }
+      else used.add(id);
+    }
+    i = j + 1;
+  }
+  return entries;
+}
+
+function linkWithNext(entries, i) {
+  const a = entries[i], b = entries[i + 1];
+  if (!b) return;
+  const id = a.superset || b.superset || uid();
+  const old = b.superset;
+  entries.forEach((e) => { if (old && e.superset === old) e.superset = id; });
+  a.superset = id; b.superset = id;
+  normalizeSupersets(entries);
+}
+function unlinkSuperset(entries, i) {
+  delete entries[i].superset;
+  normalizeSupersets(entries);
+}
+/** Rest only after the last exercise of a superset round. */
+const isLastInSuperset = (entries, i) => !entries[i].superset || entries[i + 1]?.superset !== entries[i].superset;
+
+/** Exercise-level fields carried between workouts, templates and editors. */
+function entryExtras(e, { keepNote = true } = {}) {
+  const out = {};
+  if (keepNote && typeof e.note === 'string' && e.note.trim()) out.note = e.note.trim();
+  if (e.superset) out.superset = e.superset;
+  return out;
+}
+
+/** Planned values of a set that has any (from a template), else null. */
+function plannedValues(p) {
+  const t = {};
+  ['weight', 'reps', 'distance', 'duration'].forEach((k) => { const v = num(p?.[k]); if (v != null && v > 0) t[k] = v; });
+  return Object.keys(t).length ? t : null;
+}
+
+/** Short text for one set's values, e.g. "60×8", "12 reps", "5.00 km · 25:00 · …". */
+function setValueText(s, kind) {
+  if (hasCardioValues(s)) return fmtCardio(num(s.distance) || 0, num(s.duration) || 0, kind || 'other');
+  if (num(s.weight)) return `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}`;
+  return num(s.reps) != null ? `${num(s.reps)} reps` : '–';
+}
+
+/** Which list of entries a context refers to: the live workout, the template draft or the workout draft. */
+const contextEntries = (ctx) => (ctx === 'active' ? state.active?.entries : ctx === 'draft' ? ui.draft?.entries : ui.wdraft?.entries);
+
+/** Return to whatever was open after a small menu (set menu) closes. */
+function returnFromMenu(ctx) {
+  if (ctx === 'active') { save(); closeSheet(); render(); }
+  else if (ctx === 'draft') openTemplateEditor();
+  else openWorkoutEditor();
+}
+
+/** Menu for one set: type, move, delete. Used by the live workout and both editors. */
+function openSetMenu(ctx, ei, si) {
+  const entries = contextEntries(ctx);
+  const sets = entries[ei].sets;
+  const t = setType(sets[si]);
+  if (ctx !== 'active') ui.returnScroll = $('#sheet .sheet-body')?.scrollTop ?? 0;
+  const label = setLabels(sets)[si];
+  const btn = (action, text, extra = '') => `<button class="list-item" data-action="${action}" data-ctx="${ctx}" data-entry="${ei}" data-set="${si}" ${extra}>${text}</button>`;
+  openSheet(`
+    <div class="sheet-head">
+      <span style="width:52px"></span>
+      <h2>${esc(exName(entries[ei].exerciseId))} · ${t === 'working' ? `Set ${label}` : SET_TYPE_INFO[t].label}</h2>
+      <button class="link" data-action="set-menu-back" data-ctx="${ctx}">Cancel</button>
+    </div>
+    <div class="sheet-body">
+      <div class="section-title">Set type</div>
+      <div class="card" role="radiogroup" aria-label="Set type">
+        ${['working', 'warmup', 'drop'].map((k) => btn('set-type', `<span class="grow">${SET_TYPE_INFO[k].label}</span>${t === k ? '<span class="tick" aria-hidden="true">✓</span>' : ''}`, `data-v="${k}" role="radio" aria-checked="${t === k}"`)).join('')}
+      </div>
+      <div class="card" style="margin-top:12px">
+        ${si > 0 ? btn('set-move', 'Move set up', 'data-dir="-1"') : ''}
+        ${si < sets.length - 1 ? btn('set-move', 'Move set down', 'data-dir="1"') : ''}
+        ${sets.length > 1 ? btn('set-delete', 'Delete set', 'style="color:var(--danger)"') : ''}
+      </div>
+    </div>`);
 }
 
 /* ----- Workout tab: active workout ----- */
@@ -475,7 +615,7 @@ function renderActive(action) {
       ${locationOptions()}
     </div>
 
-    ${w.entries.map((entry, i) => renderEntry(entry, i)).join('')}
+    ${(() => { const letters = supersetLetters(w.entries); return w.entries.map((entry, i) => renderEntry(entry, i, letters)).join(''); })()}
 
     <div class="btn-row" style="margin-top:16px">
       <button class="btn secondary" data-action="add-exercise">＋ Add Exercise</button>
@@ -489,31 +629,41 @@ function renderActive(action) {
   `;
 }
 
-function renderEntry(entry, i) {
+function renderEntry(entry, i, letters = []) {
   const ck = cardioKindOf(entry.exerciseId);
   const last = lastEntryFor(entry.exerciseId);
   const lastSets = last ? completedSets(last) : [];
+  const labels = setLabels(entry.sets);
+  const planned = entry.sets.some((s) => s.target);
+  const ss = letters[i];
+  const ssCont = ss && letters[i - 1] === ss;
   return `
-    <div class="card exercise-card" style="margin-top:12px" data-entry="${i}">
+    <div class="card exercise-card${ss ? ' superset' : ''}${ssCont ? ' ss-cont' : ''}" style="margin-top:${ssCont ? 4 : 12}px" data-entry="${i}">
       <div class="ex-head">
-        <span><span class="ex-name">${esc(exName(entry.exerciseId))}</span>${catTag(entry.exerciseId)}</span>
+        <span>${ss ? `<span class="ss-badge">Superset ${ss}</span>` : ''}<span class="ex-name">${esc(exName(entry.exerciseId))}</span>${catTag(entry.exerciseId)}</span>
         <button class="link" data-action="entry-menu" data-entry="${i}" aria-label="Exercise options">•••</button>
       </div>
-      ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets, ck))}</div>` : ''}
+      ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${esc(exName(entry.exerciseId))}"></div>` : ''}
+      ${last ? `<div class="ex-last">Last time: ${esc(summarizeSets(lastSets, ck))}${last.note ? ` · Note: “${esc(last.note)}”` : ''}</div>` : ''}
+      ${planned ? `<div class="ex-plan">Plan: ${esc(entry.sets.map((st, j) => `${labels[j] === String(Number(labels[j])) ? '' : `${labels[j]} `}${st.target ? setValueText(st.target, ck) : '–'}`).join(', '))}</div>` : ''}
       ${ck ? `<div class="ex-last">Distance in ${distanceUnit(ck)}, time in minutes (25 or 25.5) or mm:ss. Leave blank what you didn't measure.</div>` : ''}
       <table class="sets">
         <thead><tr><th>Set</th>${ck ? `<th>${distanceUnit(ck)}</th><th>Time</th>` : `<th>${esc(unit())}</th><th>Reps</th>`}<th>✓</th></tr></thead>
         <tbody>
           ${entry.sets.map((s, j) => {
-            const prev = lastSets[j];
+            // Placeholders: the template's plan if there is one (accent colour), else last time's values.
+            const plan = s.target;
+            const src = plan || lastSets[j];
+            const ph = plan ? ' planned' : '';
+            const t = setType(s);
             return `
-            <tr class="${s.done ? 'done' : ''}" data-set="${j}">
-              <td class="set-num">${j + 1}</td>
+            <tr class="${s.done ? 'done' : ''} type-${t}" data-set="${j}">
+              <td class="set-num"><button class="set-label ${t}" data-action="set-menu" data-ctx="active" data-entry="${i}" data-set="${j}" aria-label="${t === 'working' ? `Set ${labels[j]}` : SET_TYPE_INFO[t].label}. Change type, move or delete">${labels[j]}</button></td>
               ${ck ? `
-              <td><input inputmode="decimal" data-field="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(s.distance), ck))}" placeholder="–" aria-label="Distance (${distanceUnit(ck)})"></td>
-              <td><input inputmode="decimal" data-field="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(s.duration))}" placeholder="min" aria-label="Time, minutes or mm:ss"></td>` : `
-              <td><input inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(s.weight)))}" placeholder="${esc(inputWeight(num(prev?.weight)))}" aria-label="Weight (${esc(unit())})"></td>
-              <td><input inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${prev?.reps ?? ''}" aria-label="Reps"></td>`}
+              <td><input class="${ph}" inputmode="decimal" data-field="distance" data-kind="${ck}" data-entry="${i}" data-set="${j}" value="${esc(inputDistance(num(s.distance), ck))}" placeholder="${plan && num(plan.distance) != null ? esc(inputDistance(num(plan.distance), ck)) : '–'}" aria-label="Distance (${distanceUnit(ck)})"></td>
+              <td><input class="${ph}" inputmode="decimal" data-field="duration" data-entry="${i}" data-set="${j}" value="${esc(inputClock(s.duration))}" placeholder="${plan && num(plan.duration) != null ? esc(inputClock(plan.duration)) : 'min'}" aria-label="Time, minutes or mm:ss"></td>` : `
+              <td><input class="${ph}" inputmode="decimal" data-field="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(s.weight)))}" placeholder="${esc(inputWeight(num(src?.weight)))}" aria-label="Weight (${esc(unit())})${plan ? ', planned ' + esc(inputWeight(num(plan.weight))) : ''}"></td>
+              <td><input class="${ph}" inputmode="numeric" data-field="reps" data-entry="${i}" data-set="${j}" value="${esc(s.reps)}" placeholder="${num(src?.reps) ?? ''}" aria-label="Reps${plan && num(plan.reps) != null ? ', planned ' + num(plan.reps) : ''}"></td>`}
               <td><button class="check" data-action="toggle-set" data-entry="${i}" data-set="${j}" aria-label="Mark set done">✓</button></td>
             </tr>`;
           }).join('')}
@@ -559,12 +709,17 @@ function detailSets(e) {
   const sets = completedSets(e);
   if (!sets.length) return '<div class="detail-set muted">No completed sets</div>';
   const ck = cardioKindOf(e.exerciseId) || (sets.some(hasCardioValues) ? 'other' : null);
+  const labels = setLabels(sets);
   const lines = sets.map((s, j) => {
     const d = num(s.distance) || 0, t = num(s.duration) || 0;
     const text = ck && (d || t)
       ? fmtCardio(d, t, ck)
-      : `${num(s.weight) ? `${fmtWeight(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}${ck ? ' reps' : ''}`;
-    return `<div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${esc(text)}</span></div>`;
+      : `${num(s.weight) ? `${fmtWeight(num(s.weight))} ${unit()} × ` : ''}${num(s.reps) ?? 0}${ck ? ' reps' : ''}`;
+    // Planned values (from a template) are shown only where they differ from what was done.
+    const plan = s.target ? setValueText(s.target, ck) : null;
+    const planNote = plan && plan !== setValueText(s, ck) ? ` <span class="muted">· plan ${esc(plan)}</span>` : '';
+    const label = setType(s) === 'working' ? `Set ${labels[j]}` : SET_TYPE_INFO[setType(s)].label;
+    return `<div class="detail-set type-${setType(s)}"><span class="muted">${label}</span><span>${esc(text)}${planNote}</span></div>`;
   }).join('');
   if (!ck || sets.length < 2) return lines;
   // Totals across sets; pace/speed only from sets that have both distance and time.
@@ -602,11 +757,16 @@ function renderWorkoutDetail(w) {
         <div class="stat"><div class="num">${fmtWeight(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
       </div>
       <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${w.location ? ` · 📍 ${esc(w.location)}` : ''}</div>
-      ${w.entries.map((e) => `
-        <div class="card" style="margin-bottom:10px;padding:6px 0">
+      ${(() => {
+        const letters = supersetLetters(w.entries);
+        return w.entries.map((e, i) => `
+        <div class="card${letters[i] ? ' superset' : ''}" style="margin-bottom:${letters[i] && letters[i + 1] === letters[i] ? 4 : 10}px;padding:6px 0">
+          ${letters[i] && letters[i - 1] !== letters[i] ? `<div class="detail-set"><span class="ss-badge">Superset ${letters[i]}</span></div>` : ''}
           <div class="detail-set" style="font-weight:600;color:var(--accent)"><span>${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
+          ${e.note ? `<div class="detail-note">📝 ${esc(e.note)}</div>` : ''}
           ${detailSets(e)}
-        </div>`).join('')}
+        </div>`).join('');
+      })()}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
       <div class="btn-row"><button class="btn" data-action="edit-workout" data-id="${w.id}">Edit Workout</button></div>
       <div class="btn-row">
@@ -636,7 +796,8 @@ function beginWorkoutEdit(w) {
     endTime: isNaN(end) ? '' : timeInputValue(end),
     entries: (w.entries || []).map((e) => ({
       exerciseId: e.exerciseId,
-      sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', ...cardioFields(st), done: st.done !== false }))
+      sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', ...cardioFields(st), ...typeField(st), ...(st.target ? { target: st.target } : {}), done: st.done !== false })),
+      ...entryExtras(e)
     }))
   };
   ui.wdraftOriginal = JSON.stringify(ui.wdraft);
@@ -680,8 +841,9 @@ function workoutDraftDurationText() {
 
 function openWorkoutEditor() {
   const d = ui.wdraft;
-  const scroll = $('#sheet .sheet-body')?.scrollTop ?? 0;
   const isEditor = !!$('#sheet .workout-editor');
+  const scroll = isEditor ? ($('#sheet .sheet-body')?.scrollTop ?? 0) : ui.returnScroll;
+  ui.returnScroll = null;
   openSheet(`
     <div class="sheet-head">
       <button class="link" data-action="cancel-wedit">Cancel</button>
@@ -708,7 +870,7 @@ function openWorkoutEditor() {
       <div class="card"><textarea class="notes" id="wedit-notes" placeholder="How did it feel?">${esc(d.notes)}</textarea></div>
     </div>
   `);
-  if (isEditor) $('#sheet .sheet-body').scrollTop = scroll;
+  if (scroll != null) $('#sheet .sheet-body').scrollTop = scroll;
 }
 
 /** Close the editor without saving, asking first if anything changed. */
@@ -737,9 +899,11 @@ function saveWorkoutEdit() {
       exerciseId: e.exerciseId,
       sets: e.sets
         .filter((st) => st.weight !== '' || st.reps !== '' || num(st.distance) != null || num(st.duration) != null)
-        .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), ...cardioFields(st), done: st.done !== false }))
+        .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), ...cardioFields(st), ...typeField(st), ...(st.target ? { target: st.target } : {}), done: st.done !== false })),
+      ...entryExtras(e)
     }))
     .filter((e) => e.sets.length);
+  normalizeSupersets(entries);
   if (!entries.some((e) => completedSets(e).length)) {
     alert('A workout needs at least one set with weight or reps. To remove the whole workout, use Delete instead.');
     return;
@@ -1185,9 +1349,18 @@ function startWorkout(from) {
   const isTemplate = !!from && state.templates.includes(from);
   const setCount = (e) => (completedSets(e).length || e.sets.length);
   // New objects only, so the workout never changes the template it came from.
-  const setsFor = (e) => (isTemplate
-    ? templateSets(e).map((p) => ({ weight: p.weight, reps: p.reps === '' ? '' : String(p.reps), ...cardioFields(p), done: false }))
-    : Array.from({ length: Math.max(1, setCount(e)) }, () => ({ weight: '', reps: '', done: false })));
+  // Template: targets are kept separately as each set's plan; the values start empty.
+  // Repeat: same set types and set count, empty values.
+  const setsFor = (e) => {
+    if (isTemplate) {
+      return templateSets(e).map((p) => {
+        const target = plannedValues(p);
+        return { weight: '', reps: '', ...typeField(p), ...(target ? { target } : {}), done: false };
+      });
+    }
+    const src = completedSets(e).length ? completedSets(e) : e.sets;
+    return (src.length ? src : [{}]).map((p) => ({ weight: '', reps: '', ...typeField(p), done: false }));
+  };
   state.active = {
     id: uid(),
     name: from ? from.name : defaultWorkoutName(),
@@ -1195,7 +1368,7 @@ function startWorkout(from) {
     templateId: isTemplate ? from.id : null,
     start: new Date().toISOString(),
     notes: '',
-    entries: from ? from.entries.map((e) => ({ exerciseId: e.exerciseId, sets: setsFor(e) })) : []
+    entries: from ? normalizeSupersets(from.entries.map((e) => ({ exerciseId: e.exerciseId, sets: setsFor(e), ...entryExtras(e, { keepNote: isTemplate }) }))) : []
   };
   save();
   ui.tab = 'workout';
@@ -1215,20 +1388,22 @@ function addExerciseToWorkout(exerciseId) {
 
 function finishWorkout() {
   const w = state.active;
-  // Fill blank weight/reps from placeholders (last session) for sets marked done.
-  // Cardio distance and time are never filled in: only what was measured is kept.
+  // Fill blank weight/reps of checked sets from their placeholders: the template's plan,
+  // else last session. Cardio distance and time are never filled in: only what was measured is kept.
   w.entries.forEach((entry) => {
     const isCardio = !!cardioKindOf(entry.exerciseId);
     const lastSets = (() => { const l = lastEntryFor(entry.exerciseId); return l ? completedSets(l) : []; })();
     entry.sets.forEach((s, j) => {
       if (s.done && !isCardio) {
-        if (s.weight === '' && lastSets[j]) s.weight = lastSets[j].weight;
-        if (s.reps === '' && lastSets[j]) s.reps = lastSets[j].reps;
+        const src = s.target || lastSets[j];
+        if (s.weight === '' && num(src?.weight) != null) s.weight = num(src.weight);
+        if (s.reps === '' && num(src?.reps) != null) s.reps = String(num(src.reps));
       }
     });
     entry.sets = entry.sets.filter((s) => s.done);
+    if (typeof entry.note === 'string') { entry.note = entry.note.trim(); if (!entry.note) delete entry.note; }
   });
-  w.entries = w.entries.filter((e) => e.sets.length);
+  w.entries = normalizeSupersets(w.entries.filter((e) => e.sets.length));
   if (!w.entries.length) {
     if (!confirm('No sets are checked off. Discard this workout?')) return;
     state.active = null;
@@ -1338,7 +1513,7 @@ document.addEventListener('click', (ev) => {
   const si = el.dataset.set != null ? +el.dataset.set : null;
 
   // Exercise/set editing shared by the template editor (draft-*) and workout editor (wedit-*).
-  const edit = action.match(/^(draft|wedit)-(move-ex|remove|add-set|remove-set|move-set)$/);
+  const edit = action.match(/^(draft|wedit)-(move-ex|remove|add-set|remove-set|move-set|link|unlink)$/);
   if (edit) {
     const isTemplate = edit[1] === 'draft';
     const entries = (isTemplate ? ui.draft : ui.wdraft)?.entries;
@@ -1439,13 +1614,14 @@ document.addEventListener('click', (ev) => {
       set.done = !set.done;
       el.closest('tr').classList.toggle('done', set.done);
       save();
-      if (set.done) { haptic(); startRest(); }
+      // In a superset, rest only after the round's last exercise.
+      if (set.done) { haptic(); if (isLastInSuperset(state.active.entries, ei)) startRest(); }
       break;
     }
     case 'add-set': {
       const sets = state.active.entries[ei].sets;
       const prev = sets[sets.length - 1];
-      sets.push({ weight: prev?.weight ?? '', reps: prev?.reps ?? '', done: false });
+      sets.push({ weight: prev?.weight ?? '', reps: prev?.reps ?? '', ...(prev && setType(prev) === 'drop' ? { type: 'drop' } : {}), done: false });
       save(); render();
       break;
     }
@@ -1455,6 +1631,9 @@ document.addEventListener('click', (ev) => {
       openSheet(`
         <div class="sheet-head"><span style="width:52px"></span><h2>${esc(exName(entries[ei].exerciseId))}</h2><button class="link" data-action="close-sheet">Cancel</button></div>
         <div class="sheet-body"><div class="card">
+          ${entries[ei].note === undefined ? `<button class="list-item" data-action="entry-note" data-entry="${ei}">Add exercise note</button>` : ''}
+          ${ei < entries.length - 1 && (!entries[ei].superset || entries[ei + 1].superset !== entries[ei].superset) ? `<button class="list-item" data-action="entry-link" data-entry="${ei}">Superset with ${esc(exName(entries[ei + 1].exerciseId))}</button>` : ''}
+          ${entries[ei].superset ? `<button class="list-item" data-action="entry-unlink" data-entry="${ei}">Remove from superset</button>` : ''}
           ${ei > 0 ? `<button class="list-item" data-action="move-entry" data-entry="${ei}" data-dir="-1">Move up</button>` : ''}
           ${ei < entries.length - 1 ? `<button class="list-item" data-action="move-entry" data-entry="${ei}" data-dir="1">Move down</button>` : ''}
           <button class="list-item" data-action="remove-entry" data-entry="${ei}" style="color:var(--danger)">Remove exercise</button>
@@ -1464,10 +1643,38 @@ document.addEventListener('click', (ev) => {
     case 'move-entry': {
       const entries = state.active.entries, to = ei + +el.dataset.dir;
       [entries[ei], entries[to]] = [entries[to], entries[ei]];
+      normalizeSupersets(entries);
       save(); closeSheet(); render();
       break;
     }
-    case 'remove-entry': state.active.entries.splice(ei, 1); save(); closeSheet(); render(); break;
+    case 'remove-entry': state.active.entries.splice(ei, 1); normalizeSupersets(state.active.entries); save(); closeSheet(); render(); break;
+    case 'entry-note':
+      state.active.entries[ei].note = '';
+      save(); closeSheet(); render();
+      setTimeout(() => $(`.ex-note-input[data-note="active"][data-entry="${ei}"]`)?.focus(), 50);
+      break;
+    case 'entry-link': linkWithNext(state.active.entries, ei); save(); closeSheet(); render(); break;
+    case 'entry-unlink': unlinkSuperset(state.active.entries, ei); save(); closeSheet(); render(); break;
+    case 'set-menu': openSetMenu(el.dataset.ctx, ei, si); break;
+    case 'set-menu-back': returnFromMenu(el.dataset.ctx); break;
+    case 'set-type': {
+      const set = contextEntries(el.dataset.ctx)[ei].sets[si];
+      if (el.dataset.v === 'working') delete set.type; else set.type = el.dataset.v;
+      returnFromMenu(el.dataset.ctx);
+      break;
+    }
+    case 'set-move': {
+      const sets = contextEntries(el.dataset.ctx)[ei].sets, to = si + +el.dataset.dir;
+      [sets[si], sets[to]] = [sets[to], sets[si]];
+      returnFromMenu(el.dataset.ctx);
+      break;
+    }
+    case 'set-delete': {
+      const sets = contextEntries(el.dataset.ctx)[ei].sets;
+      if (sets.length > 1) sets.splice(si, 1);
+      returnFromMenu(el.dataset.ctx);
+      break;
+    }
     case 'open-workout': openSheet(renderWorkoutDetail(state.workouts.find((w) => w.id === id))); break;
     case 'delete-workout':
       if (confirm('Delete this workout?')) { state.workouts = state.workouts.filter((w) => w.id !== id); save(); closeSheet(); render(); }
@@ -1487,7 +1694,12 @@ document.addEventListener('click', (ev) => {
 
 document.addEventListener('input', (ev) => {
   const t = ev.target;
-  if (t.dataset.field && state.active) {
+  if (t.dataset.note) {
+    // Exercise note in the live workout or an editor.
+    const entries = contextEntries(t.dataset.note);
+    if (entries?.[+t.dataset.entry]) entries[+t.dataset.entry].note = t.value;
+    if (t.dataset.note === 'active') save();
+  } else if (t.dataset.field && state.active) {
     const set = state.active.entries[+t.dataset.entry].sets[+t.dataset.set];
     const value = t.value.replace(',', '.');
     if (t.dataset.field === 'weight') {
@@ -1560,7 +1772,10 @@ document.addEventListener('change', (ev) => {
 });
 
 $('#sheet-backdrop').addEventListener('click', () => {
-  if (ui.wdraft) cancelWorkoutEdit();
+  // A set menu opened from an editor goes back to that editor.
+  const back = $('#sheet [data-action="set-menu-back"]');
+  if (back) returnFromMenu(back.dataset.ctx);
+  else if (ui.wdraft) cancelWorkoutEdit();
   else if (ui.draft) cancelTemplateDraft();
   else closeSheet();
 });

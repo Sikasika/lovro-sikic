@@ -19,6 +19,8 @@
    - Completed workout: a finished (saved) workout with a valid
      start date no later than today and at least one valid set.
      The workout in progress is never counted.
+   - Warm-up sets (set.type 'warmup') count as completed sets but not
+     toward volume, records, estimated 1RM or performance charts.
    - Days are local calendar days of the workout's start time;
      weeks start on Monday.
    - Estimated 1-rep max: Epley, weight × (1 + reps / 30), from
@@ -236,7 +238,9 @@ function exerciseSessions(items, exerciseId) {
   for (const it of items) {
     const entries = it.entries.filter((e) => e.exerciseId === exerciseId);
     if (!entries.length) continue;
-    const sets = entries.flatMap(completedSets).map((s) => ({ w: num(s.weight) || 0, r: num(s.reps) || 0, d: num(s.distance) || 0, t: num(s.duration) || 0 }));
+    const sets = entries.flatMap(completedSets).filter((s) => s.type !== 'warmup')
+      .map((s) => ({ w: num(s.weight) || 0, r: num(s.reps) || 0, d: num(s.distance) || 0, t: num(s.duration) || 0 }));
+    if (!sets.length) continue; // only warm-ups for this exercise in that workout
     const weighted = sets.filter((s) => s.w > 0);
     const e1rms = sets.map((s) => setE1rm(s.w, s.r)).filter((v) => v != null);
     const v = {};
