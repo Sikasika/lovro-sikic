@@ -26,6 +26,7 @@ function defaultState() {
   return {
     exercises: DEFAULT_EXERCISES.map(([name, category]) => ({ id: uid(), name, category })),
     workouts: [],
+    templates: [],
     active: null,
     settings: { unit: 'kg', rest: 90 }
   };
@@ -53,7 +54,7 @@ function save() {
   }
 }
 
-const ui = { tab: 'workout', progressExercise: null, restEnd: null };
+const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null };
 
 /* ---------- Helpers ---------- */
 
@@ -141,13 +142,30 @@ function render() {
 /* ----- Workout tab: start screen ----- */
 
 function renderStart() {
-  const recent = state.workouts.slice(0, 5);
+  const recent = state.workouts.slice(0, 3);
   return `
     <div class="card card-pad" style="margin-top:12px">
       <div style="font-weight:600;font-size:20px">Ready to train?</div>
       <div class="sub" style="color:var(--muted);margin:4px 0 14px">Start an empty workout and add exercises as you go.</div>
       <button class="btn" data-action="start">Start Empty Workout</button>
     </div>
+
+    <div class="section-title">My templates</div>
+    <div class="template-grid">
+      ${state.templates.map((t) => `
+        <div class="template-tile" role="button" tabindex="0" data-action="start-template" data-id="${t.id}">
+          <button class="tile-edit" data-action="edit-template" data-id="${t.id}" aria-label="Edit ${esc(t.name)}">•••</button>
+          <div class="tile-name">${esc(t.name)}</div>
+          <div class="tile-sub">${t.entries.length} exercise${t.entries.length === 1 ? '' : 's'}</div>
+          <div class="tile-ex">${esc(t.entries.map((e) => exName(e.exerciseId)).join(', ') || 'No exercises yet')}</div>
+          ${t.location ? `<div class="tile-loc">📍 ${esc(t.location)}</div>` : ''}
+        </div>`).join('')}
+      <button class="template-tile new" data-action="new-template">
+        <span class="plus">＋</span>
+        <span>New Template</span>
+      </button>
+    </div>
+
     ${recent.length ? `
       <div class="section-title">Repeat a recent workout</div>
       <div class="card">
@@ -164,6 +182,80 @@ function renderStart() {
   `;
 }
 
+/* ----- Templates ----- */
+
+/** Places used before, most recent first, for location suggestions. */
+function knownLocations() {
+  const all = [state.active?.location, ...state.workouts.map((w) => w.location), ...state.templates.map((t) => t.location)];
+  return [...new Set(all.filter(Boolean).map((l) => l.trim()).filter(Boolean))];
+}
+
+function locationOptions() {
+  return `<datalist id="locations">${knownLocations().map((l) => `<option value="${esc(l)}">`).join('')}</datalist>`;
+}
+
+/** Turn workout entries into template entries (exercise + number of sets). */
+function entriesToTemplate(entries) {
+  return entries.map((e) => ({ exerciseId: e.exerciseId, sets: Math.max(1, e.sets.length) }));
+}
+
+function openTemplateEditor() {
+  const d = ui.draft;
+  openSheet(`
+    <div class="sheet-head">
+      <button class="link" data-action="close-sheet">Cancel</button>
+      <h2>${d.id ? 'Edit Template' : 'New Template'}</h2>
+      <button class="link" data-action="save-template" style="font-weight:600">Save</button>
+    </div>
+    <div class="sheet-body">
+      <div class="card">
+        <label class="field"><span>Name</span><input id="draft-name" value="${esc(d.name)}" placeholder="e.g. Push Day" autocomplete="off"></label>
+        <label class="field"><span>Location</span><input id="draft-location" list="locations" value="${esc(d.location)}" placeholder="Optional" autocomplete="off"></label>
+      </div>
+      ${locationOptions()}
+
+      <div class="section-title">Exercises</div>
+      ${d.entries.length ? `<div class="card">
+        ${d.entries.map((e, i) => `
+          <div class="list-item">
+            <div class="grow truncate">${esc(exName(e.exerciseId))}</div>
+            <div class="stepper">
+              <button data-action="draft-sets" data-entry="${i}" data-dir="-1" aria-label="Fewer sets">−</button>
+              <span>${e.sets} set${e.sets === 1 ? '' : 's'}</span>
+              <button data-action="draft-sets" data-entry="${i}" data-dir="1" aria-label="More sets">＋</button>
+            </div>
+            <button class="link danger" data-action="draft-remove" data-entry="${i}" aria-label="Remove exercise">✕</button>
+          </div>`).join('')}
+      </div>` : '<div class="card card-pad" style="color:var(--muted)">No exercises yet.</div>'}
+      <div class="btn-row"><button class="btn secondary" data-action="draft-add-exercise">＋ Add Exercise</button></div>
+
+      ${d.id ? `<div class="btn-row"><button class="btn danger" data-action="delete-template" data-id="${d.id}">Delete Template</button></div>` : ''}
+    </div>
+  `);
+}
+
+function saveTemplate() {
+  const d = ui.draft;
+  d.name = d.name.trim() || 'My Template';
+  d.location = (d.location || '').trim();
+  const i = state.templates.findIndex((t) => t.id === d.id);
+  if (i >= 0) state.templates[i] = d;
+  else state.templates.push({ ...d, id: uid() });
+  ui.draft = null;
+  save();
+  closeSheet();
+  render();
+  toast('Template saved');
+}
+
+/** Save a workout (in progress or finished) as a new template. */
+function saveAsTemplate(w) {
+  if (!w.entries.length) { alert('Add at least one exercise first.'); return; }
+  state.templates.push({ id: uid(), name: w.name, location: w.location || '', entries: entriesToTemplate(w.entries) });
+  save();
+  toast(`Saved “${w.name}” as a template`);
+}
+
 /* ----- Workout tab: active workout ----- */
 
 function renderActive(action) {
@@ -175,6 +267,11 @@ function renderActive(action) {
         <input id="workout-name" value="${esc(w.name)}" aria-label="Workout name" autocomplete="off">
         <span class="elapsed" id="elapsed">${fmtDuration(Date.now() - new Date(w.start))}</span>
       </div>
+      <div class="location-row">
+        <span aria-hidden="true">📍</span>
+        <input id="workout-location" list="locations" value="${esc(w.location)}" placeholder="Add location" aria-label="Location" autocomplete="off">
+      </div>
+      ${locationOptions()}
     </div>
 
     ${w.entries.map((entry, i) => renderEntry(entry, i)).join('')}
@@ -186,6 +283,7 @@ function renderActive(action) {
     <div class="section-title">Notes</div>
     <div class="card"><textarea class="notes" id="workout-notes" placeholder="How did it feel?">${esc(w.notes)}</textarea></div>
 
+    <div class="btn-row"><button class="btn secondary" data-action="save-active-template">Save as Template</button></div>
     <div class="btn-row"><button class="btn danger" data-action="discard">Discard Workout</button></div>
   `;
 }
@@ -243,6 +341,7 @@ function renderHistory() {
           <div class="grow">
             <div class="truncate">${esc(w.name)}</div>
             <div class="sub">${fmtDate(w.start)} · ${fmtDuration(new Date(w.end) - new Date(w.start))} · ${workoutSetCount(w)} sets</div>
+            ${w.location ? `<div class="sub truncate">📍 ${esc(w.location)}</div>` : ''}
           </div>
           <span class="chev">›</span>
         </button>`).join('')}
@@ -263,7 +362,7 @@ function renderWorkoutDetail(w) {
         <div class="stat"><div class="num">${workoutSetCount(w)}</div><div class="lbl">Sets</div></div>
         <div class="stat"><div class="num">${fmtNum(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
       </div>
-      <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+      <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${w.location ? ` · 📍 ${esc(w.location)}` : ''}</div>
       ${w.entries.map((e) => `
         <div class="card" style="margin-bottom:10px;padding:6px 0">
           <div class="detail-set" style="font-weight:600;color:var(--accent)">${esc(exName(e.exerciseId))}</div>
@@ -271,7 +370,10 @@ function renderWorkoutDetail(w) {
             <div class="detail-set"><span class="muted">Set ${j + 1}</span><span>${num(s.weight) ? `${fmtNum(num(s.weight))} ${esc(unit())} × ` : ''}${num(s.reps) ?? 0}</span></div>`).join('') || '<div class="detail-set muted">No completed sets</div>'}
         </div>`).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
-      <div class="btn-row"><button class="btn secondary" data-action="repeat" data-id="${w.id}">Repeat This Workout</button></div>
+      <div class="btn-row">
+        <button class="btn secondary" data-action="repeat" data-id="${w.id}">Repeat Workout</button>
+        <button class="btn secondary" data-action="save-history-template" data-id="${w.id}">Save as Template</button>
+      </div>
     </div>
   `;
 }
@@ -482,8 +584,8 @@ function exercisePickerHtml(query = '', mode = 'pick') {
     ${[...groups].map(([cat, exs]) => `
       <div class="section-title">${esc(cat)}</div>
       <div class="card">
-        ${exs.map((e) => mode === 'pick'
-          ? `<button class="list-item" data-action="pick-exercise" data-id="${e.id}"><span class="grow">${esc(e.name)}</span></button>`
+        ${exs.map((e) => mode !== 'manage'
+          ? `<button class="list-item" data-action="pick-exercise" data-id="${e.id}" data-mode="${mode}"><span class="grow">${esc(e.name)}</span></button>`
           : `<div class="list-item"><span class="grow">${esc(e.name)}</span><button class="link danger" data-action="delete-exercise" data-id="${e.id}">Delete</button></div>`
         ).join('')}
       </div>`).join('') || (q ? '' : '<div class="empty">No exercises</div>')}
@@ -494,8 +596,8 @@ function openExercisePicker(mode = 'pick') {
   openSheet(`
     <div class="sheet-head">
       <span style="width:52px"></span>
-      <h2>${mode === 'pick' ? 'Add Exercise' : 'Exercises'}</h2>
-      <button class="link" data-action="close-sheet">Done</button>
+      <h2>${mode === 'manage' ? 'Exercises' : 'Add Exercise'}</h2>
+      <button class="link" data-action="${mode === 'template' ? 'back-to-template' : 'close-sheet'}">${mode === 'template' ? 'Back' : 'Done'}</button>
     </div>
     <div class="sheet-body">
       <input class="search" id="exercise-search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}">
@@ -510,7 +612,7 @@ function openCategoryPicker(name, mode) {
     <div class="sheet-head">
       <span style="width:52px"></span>
       <h2>Category for “${esc(name)}”</h2>
-      <button class="link" data-action="close-sheet">Cancel</button>
+      <button class="link" data-action="${mode === 'template' ? 'back-to-template' : 'close-sheet'}">Cancel</button>
     </div>
     <div class="sheet-body">
       <div class="card">
@@ -522,16 +624,23 @@ function openCategoryPicker(name, mode) {
 
 /* ---------- Workout actions ---------- */
 
-function startWorkout(template) {
+/**
+ * Start a workout. `from` can be a template ({ entries: [{ exerciseId, sets: n }] })
+ * or a past workout to repeat ({ entries: [{ exerciseId, sets: [...] }] }).
+ */
+function startWorkout(from) {
+  const setCount = (e) => (typeof e.sets === 'number' ? e.sets : (completedSets(e).length || e.sets.length));
   state.active = {
     id: uid(),
-    name: template ? template.name : defaultWorkoutName(),
+    name: from ? from.name : defaultWorkoutName(),
+    location: from?.location || '',
+    templateId: from && state.templates.includes(from) ? from.id : null,
     start: new Date().toISOString(),
     notes: '',
-    entries: template
-      ? template.entries.map((e) => ({
+    entries: from
+      ? from.entries.map((e) => ({
           exerciseId: e.exerciseId,
-          sets: (completedSets(e).length ? completedSets(e) : e.sets).map(() => ({ weight: '', reps: '', done: false }))
+          sets: Array.from({ length: Math.max(1, setCount(e)) }, () => ({ weight: '', reps: '', done: false }))
         }))
       : []
   };
@@ -633,7 +742,7 @@ function importData(file) {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data.workouts) || !Array.isArray(data.exercises)) throw new Error('Invalid file');
       if (!confirm(`Replace current data with backup (${data.workouts.length} workouts)?`)) return;
-      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings } };
+      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings } };
       save();
       render();
       toast('Backup imported');
@@ -664,23 +773,58 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'finish': finishWorkout(); break;
+    case 'start-template': startWorkout(state.templates.find((t) => t.id === id)); break;
+    case 'new-template':
+      ui.draft = { id: null, name: '', location: '', entries: [] };
+      openTemplateEditor();
+      setTimeout(() => $('#draft-name')?.focus(), 300);
+      break;
+    case 'edit-template': {
+      const t = state.templates.find((x) => x.id === id);
+      ui.draft = { ...t, entries: t.entries.map((e) => ({ ...e })) };
+      openTemplateEditor();
+      break;
+    }
+    case 'save-template': saveTemplate(); break;
+    case 'delete-template':
+      if (confirm(`Delete the template “${ui.draft.name}”? Your past workouts are kept.`)) {
+        state.templates = state.templates.filter((t) => t.id !== id);
+        ui.draft = null; save(); closeSheet(); render();
+      }
+      break;
+    case 'draft-add-exercise': openExercisePicker('template'); break;
+    case 'back-to-template': openTemplateEditor(); break;
+    case 'draft-sets': {
+      const e = ui.draft.entries[ei];
+      e.sets = Math.min(20, Math.max(1, e.sets + +el.dataset.dir));
+      openTemplateEditor();
+      break;
+    }
+    case 'draft-remove': ui.draft.entries.splice(ei, 1); openTemplateEditor(); break;
+    case 'save-active-template': saveAsTemplate(state.active); break;
+    case 'save-history-template': saveAsTemplate(state.workouts.find((w) => w.id === id)); break;
     case 'discard':
       if (confirm('Discard this workout? This cannot be undone.')) { state.active = null; stopRest(); save(); render(); }
       break;
     case 'add-exercise': openExercisePicker('pick'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
-    case 'pick-exercise': addExerciseToWorkout(id); break;
+    case 'pick-exercise':
+      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: 3 }); openTemplateEditor(); }
+      else addExerciseToWorkout(id);
+      break;
     case 'create-exercise': openCategoryPicker($('#exercise-search').value.trim(), el.dataset.mode); break;
     case 'choose-category': {
       const ex = { id: uid(), name: el.dataset.name, category: el.dataset.category };
       state.exercises.push(ex);
       save();
-      if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
+      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: 3 }); openTemplateEditor(); }
+      else if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
       else openExercisePicker('manage');
       break;
     }
     case 'delete-exercise': {
-      const used = state.workouts.some((w) => w.entries.some((e) => e.exerciseId === id)) || state.active?.entries.some((e) => e.exerciseId === id);
-      if (used) { alert('This exercise is used in your workouts and cannot be deleted.'); return; }
+      const usedIn = (list) => list.some((w) => w.entries.some((e) => e.exerciseId === id));
+      const used = usedIn(state.workouts) || usedIn(state.templates) || state.active?.entries.some((e) => e.exerciseId === id);
+      if (used) { alert('This exercise is used in your workouts or templates and cannot be deleted.'); return; }
       state.exercises = state.exercises.filter((e) => e.id !== id);
       save();
       $('#exercise-list').innerHTML = exercisePickerHtml($('#exercise-search').value, 'manage');
@@ -744,6 +888,12 @@ document.addEventListener('input', (ev) => {
     save();
   } else if (t.id === 'workout-name') {
     state.active.name = t.value; save();
+  } else if (t.id === 'workout-location') {
+    state.active.location = t.value; save();
+  } else if (t.id === 'draft-name') {
+    ui.draft.name = t.value;
+  } else if (t.id === 'draft-location') {
+    ui.draft.location = t.value;
   } else if (t.id === 'workout-notes') {
     state.active.notes = t.value; save();
   } else if (t.id === 'exercise-search') {
