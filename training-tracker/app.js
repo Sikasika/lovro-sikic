@@ -122,7 +122,7 @@ function save() {
   }
 }
 
-const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null };
+const ui = { pendingRestore: null, tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null };
 
 /* ---------- Helpers ---------- */
 
@@ -1135,14 +1135,22 @@ function renderSettings() {
       </button>
     </div>
 
-    <div class="section-title">Data</div>
+    <div class="section-title">Backup</div>
     <div class="card">
-      <button class="list-item" data-action="export"><span class="grow">Export backup</span><span class="chev">›</span></button>
-      <button class="list-item" data-action="import"><span class="grow">Import backup</span><span class="chev">›</span></button>
+      <button class="list-item" data-action="export">
+        <div class="grow"><div>Export backup</div><div class="sub">${state.lastExportAt ? `Last exported ${fmtDate(state.lastExportAt, { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Not exported from this device yet'}</div></div>
+        <span class="chev">›</span>
+      </button>
+      <button class="list-item" data-action="import">
+        <div class="grow"><div>Restore from backup</div><div class="sub">Checks the file and asks before replacing anything</div></div>
+        <span class="chev">›</span>
+      </button>
+      ${(() => { const b = beforeRestoreInfo(); return b ? `<button class="list-item" data-action="undo-restore"><div class="grow"><div>Undo last restore</div><div class="sub">Brings back the ${b.workouts} workout${b.workouts === 1 ? '' : 's'} saved${b.exportedAt ? ` on ${fmtDate(b.exportedAt, { day: 'numeric', month: 'short' })}` : ''}</div></div><span class="chev">›</span></button>` : ''; })()}
       ${hasPreUpdateCopy() ? '<button class="list-item" data-action="export-pre-update"><span class="grow">Download pre-update copy</span><span class="chev">›</span></button>' : ''}
       <button class="list-item" data-action="reset" style="color:var(--danger)"><span class="grow">Erase all data</span></button>
     </div>
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+    <p class="tpl-hint">A backup is one .json file with all workouts, templates, exercises and settings. Save it to Files or iCloud Drive. Your data is only stored on this device.</p>
 
     <div class="section-title">Install on iPhone</div>
     <div class="card card-pad" style="font-size:15px;color:var(--muted)">
@@ -1483,54 +1491,7 @@ function stopRest() {
 
 /* ---------- Backup ---------- */
 
-function hasPreUpdateCopy() {
-  try { return !!localStorage.getItem(BACKUP_KEY); } catch (e) { return false; }
-}
-
-function exportData() {
-  const json = JSON.stringify({ app: 'training-tracker', exportedAt: new Date().toISOString(), ...state }, null, 2);
-  return shareFile(json, `training-backup-${new Date().toISOString().slice(0, 10)}.json`);
-}
-
-/** The original data from before the v2 upgrade. It can be imported again like any backup. */
-function exportPreUpdateCopy() {
-  let raw = null;
-  try { raw = localStorage.getItem(BACKUP_KEY); } catch (e) { /* ignore */ }
-  if (!raw) { toast('No pre-update copy on this device'); return; }
-  return shareFile(raw, 'training-backup-before-update.json');
-}
-
-async function shareFile(json, filename) {
-  const file = new File([json], filename, { type: 'application/json' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Training backup' }); return; } catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(file);
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-function importData(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const parsed = JSON.parse(reader.result);
-      if (!Array.isArray(parsed.workouts) || !Array.isArray(parsed.exercises)) throw new Error('Invalid file');
-      const data = migrate(parsed); // older backups store weights as typed; convert like stored data
-      if (!confirm(`Replace current data with backup (${data.workouts.length} workouts)?`)) return;
-      state = { ...defaultState(), exercises: data.exercises, workouts: data.workouts, templates: data.templates ?? [], active: data.active ?? null, settings: { ...defaultState().settings, ...data.settings }, schemaVersion: data.schemaVersion, cardioExercisesAdded: !!data.cardioExercisesAdded };
-      addNewDefaultExercises(state);
-      save();
-      render();
-      toast('Backup imported');
-    } catch (e) {
-      alert('That file is not a valid Training Tracker backup.');
-    }
-  };
-  reader.readAsText(file);
-}
+// Backup export, validation and restore live in backup.js.
 
 /* ---------- Events ---------- */
 
@@ -1714,10 +1675,15 @@ document.addEventListener('click', (ev) => {
     case 'close-sheet': closeSheet(); break;
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
     case 'export': exportData(); break;
+    case 'restore-confirm': confirmRestore(); break;
+    case 'restore-cancel': ui.pendingRestore = null; closeSheet(); toast('Restore cancelled. Nothing was changed.'); break;
+    case 'restore-toggle-copy': ui.pendingRestore.saveCopy = !ui.pendingRestore.saveCopy; renderRestoreConfirm(); break;
+    case 'undo-restore': undoLastRestore(); break;
     case 'export-pre-update': exportPreUpdateCopy(); break;
     case 'import': $('#import-file').click(); break;
     case 'reset':
-      if (confirm('Erase ALL workouts and custom exercises? Export a backup first if you want to keep them.')) {
+      if (confirm('Erase ALL workouts, templates and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
+        keepBeforeRestoreCopy();
         state = defaultState(); stopRest(); save(); render(); toast('All data erased');
       }
       break;
