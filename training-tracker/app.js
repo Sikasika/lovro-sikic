@@ -100,7 +100,7 @@ function save() {
   }
 }
 
-const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null };
+const ui = { tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null };
 
 /* ---------- Helpers ---------- */
 
@@ -238,20 +238,70 @@ function locationOptions() {
   return `<datalist id="locations">${knownLocations().map((l) => `<option value="${esc(l)}">`).join('')}</datalist>`;
 }
 
-/** Turn workout entries into template entries (exercise + number of sets). */
+/*
+  Template format: { id, name, location, entries: [{ exerciseId, sets: [{ weight, reps }] }] }
+  where weight is a target in kg (number) or '' and reps is a target number or ''.
+  Templates saved by older versions store sets as a count ({ sets: 3 }); they are read
+  as that many empty sets and only rewritten in the new format when edited and saved.
+*/
+
+/** Planned sets of a template entry, in the current format (never mutates the template). */
+function templateSets(entry) {
+  if (Array.isArray(entry?.sets)) {
+    return entry.sets.map((s) => ({ weight: num(s?.weight) ?? '', reps: num(s?.reps) ?? '' }));
+  }
+  const n = Math.max(1, Math.min(50, Math.round(Number(entry?.sets)) || 1));
+  return Array.from({ length: n }, () => ({ weight: '', reps: '' }));
+}
+
+const emptyPlannedSet = () => ({ weight: '', reps: '' });
+
+/** Turn workout entries into template entries, keeping each set's weight and reps as targets. */
 function entriesToTemplate(entries) {
-  return entries.map((e) => ({ exerciseId: e.exerciseId, sets: Math.max(1, e.sets.length) }));
+  return entries.map((e) => ({
+    exerciseId: e.exerciseId,
+    sets: (e.sets.length ? e.sets : [emptyPlannedSet()]).map((s) => {
+      const w = num(s.weight), r = num(s.reps);
+      return { weight: w != null && w >= 0 ? w : '', reps: r != null && r >= 0 ? r : '' };
+    })
+  }));
+}
+
+/** Planned sets for a newly added exercise: last time's sets if any, else three empty ones. */
+function defaultPlannedSets(exerciseId) {
+  const last = lastEntryFor(exerciseId);
+  return last ? entriesToTemplate([{ exerciseId, sets: completedSets(last) }])[0].sets : [emptyPlannedSet(), emptyPlannedSet(), emptyPlannedSet()];
+}
+
+/** Start editing a copy of a template (or a new one); the original is untouched until Save. */
+function beginTemplateDraft(t) {
+  ui.draft = t
+    ? { id: t.id, name: t.name || '', location: t.location || '', entries: t.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e) })) }
+    : { id: null, name: '', location: '', entries: [] };
+  ui.draftOriginal = JSON.stringify(ui.draft);
+}
+
+const draftChanged = () => ui.draft && JSON.stringify(ui.draft) !== ui.draftOriginal;
+
+/** Close the editor, asking first if there are unsaved changes. */
+function cancelTemplateDraft() {
+  if (draftChanged() && !confirm('Discard your changes to this template?')) return;
+  ui.draft = null;
+  closeSheet();
 }
 
 function openTemplateEditor() {
   const d = ui.draft;
+  const scroll = $('#sheet .sheet-body')?.scrollTop ?? 0;
+  const isEditor = !!$('#sheet .template-editor');
+  const u = esc(unit());
   openSheet(`
     <div class="sheet-head">
-      <button class="link" data-action="close-sheet">Cancel</button>
+      <button class="link" data-action="cancel-template">Cancel</button>
       <h2>${d.id ? 'Edit Template' : 'New Template'}</h2>
       <button class="link" data-action="save-template" style="font-weight:600">Save</button>
     </div>
-    <div class="sheet-body">
+    <div class="sheet-body template-editor">
       <div class="card">
         <label class="field"><span>Name</span><input id="draft-name" value="${esc(d.name)}" placeholder="e.g. Push Day" autocomplete="off"></label>
         <label class="field"><span>Location</span><input id="draft-location" list="locations" value="${esc(d.location)}" placeholder="Optional" autocomplete="off"></label>
@@ -259,32 +309,60 @@ function openTemplateEditor() {
       ${locationOptions()}
 
       <div class="section-title">Exercises</div>
-      ${d.entries.length ? `<div class="card">
-        ${d.entries.map((e, i) => `
-          <div class="list-item">
-            <div class="grow truncate">${esc(exName(e.exerciseId))}</div>
-            <div class="stepper">
-              <button data-action="draft-sets" data-entry="${i}" data-dir="-1" aria-label="Fewer sets">−</button>
-              <span>${e.sets} set${e.sets === 1 ? '' : 's'}</span>
-              <button data-action="draft-sets" data-entry="${i}" data-dir="1" aria-label="More sets">＋</button>
-            </div>
-            <button class="link danger" data-action="draft-remove" data-entry="${i}" aria-label="Remove exercise">✕</button>
-          </div>`).join('')}
-      </div>` : '<div class="card card-pad" style="color:var(--muted)">No exercises yet.</div>'}
-      <div class="btn-row"><button class="btn secondary" data-action="draft-add-exercise">＋ Add Exercise</button></div>
+      ${d.entries.length ? d.entries.map((e, i) => {
+        const name = esc(exName(e.exerciseId));
+        return `
+        <div class="card exercise-card tpl-card" style="margin-top:12px">
+          <div class="ex-head">
+            <span class="ex-name">${name}</span>
+            <span class="tpl-ex-actions">
+              <button class="icon-btn" data-action="draft-move-ex" data-entry="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${name} up">↑</button>
+              <button class="icon-btn" data-action="draft-move-ex" data-entry="${i}" data-dir="1" ${i === d.entries.length - 1 ? 'disabled' : ''} aria-label="Move ${name} down">↓</button>
+              <button class="icon-btn danger" data-action="draft-remove" data-entry="${i}" aria-label="Remove ${name}">✕</button>
+            </span>
+          </div>
+          <table class="sets tpl-sets">
+            <thead><tr><th>Set</th><th>Target ${u}</th><th>Target reps</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              ${e.sets.map((st, j) => `
+              <tr>
+                <td class="set-num">${j + 1}</td>
+                <td><input inputmode="decimal" data-tfield="weight" data-entry="${i}" data-set="${j}" value="${esc(inputWeight(num(st.weight)))}" placeholder="–" aria-label="${name} set ${j + 1} target weight (${u})"></td>
+                <td><input inputmode="numeric" data-tfield="reps" data-entry="${i}" data-set="${j}" value="${esc(st.reps)}" placeholder="–" aria-label="${name} set ${j + 1} target reps"></td>
+                <td class="tpl-set-actions">
+                  <button class="icon-btn" data-action="draft-move-set" data-entry="${i}" data-set="${j}" ${j === 0 ? 'disabled' : ''} aria-label="Move set ${j + 1} up">↑</button>
+                  <button class="icon-btn danger" data-action="draft-remove-set" data-entry="${i}" data-set="${j}" ${e.sets.length === 1 ? 'disabled' : ''} aria-label="Remove set ${j + 1}">✕</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div class="ex-actions">
+            <button class="link" data-action="draft-add-set" data-entry="${i}">＋ Add Set</button>
+            <span class="sub">${e.sets.length} set${e.sets.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>`;
+      }).join('') : '<div class="card card-pad" style="color:var(--muted)">No exercises yet.</div>'}
+      <div class="btn-row" style="margin-top:16px"><button class="btn secondary" data-action="draft-add-exercise">＋ Add Exercise</button></div>
+      <p class="tpl-hint">Leave a target empty to fill it in during the workout. Weights are in ${u}.</p>
 
       ${d.id ? `<div class="btn-row"><button class="btn danger" data-action="delete-template" data-id="${d.id}">Delete Template</button></div>` : ''}
     </div>
   `);
+  // Keep the scroll position when the editor re-renders after a change.
+  if (isEditor) $('#sheet .sheet-body').scrollTop = scroll;
 }
 
 function saveTemplate() {
   const d = ui.draft;
-  d.name = d.name.trim() || 'My Template';
-  d.location = (d.location || '').trim();
+  const tpl = {
+    id: d.id || uid(),
+    name: d.name.trim() || 'My Template',
+    location: (d.location || '').trim(),
+    entries: d.entries.map((e) => ({ exerciseId: e.exerciseId, sets: templateSets(e) }))
+  };
   const i = state.templates.findIndex((t) => t.id === d.id);
-  if (i >= 0) state.templates[i] = d;
-  else state.templates.push({ ...d, id: uid() });
+  if (i >= 0) state.templates[i] = tpl;
+  else state.templates.push(tpl);
   ui.draft = null;
   save();
   closeSheet();
@@ -593,6 +671,7 @@ function openSheet(html) {
 }
 
 function closeSheet() {
+  ui.draft = null; // a template draft only lives while its editor is open
   $('#sheet').classList.add('hidden');
   $('#sheet-backdrop').classList.add('hidden');
   $('#sheet').innerHTML = '';
@@ -655,24 +734,24 @@ function openCategoryPicker(name, mode) {
 /* ---------- Workout actions ---------- */
 
 /**
- * Start a workout. `from` can be a template ({ entries: [{ exerciseId, sets: n }] })
- * or a past workout to repeat ({ entries: [{ exerciseId, sets: [...] }] }).
+ * Start a workout from nothing, from a template (sets pre-filled with its targets),
+ * or from a past workout to repeat (same exercises and set counts, empty values).
  */
 function startWorkout(from) {
-  const setCount = (e) => (typeof e.sets === 'number' ? e.sets : (completedSets(e).length || e.sets.length));
+  const isTemplate = !!from && state.templates.includes(from);
+  const setCount = (e) => (completedSets(e).length || e.sets.length);
+  // New objects only, so the workout never changes the template it came from.
+  const setsFor = (e) => (isTemplate
+    ? templateSets(e).map((p) => ({ weight: p.weight, reps: p.reps === '' ? '' : String(p.reps), done: false }))
+    : Array.from({ length: Math.max(1, setCount(e)) }, () => ({ weight: '', reps: '', done: false })));
   state.active = {
     id: uid(),
     name: from ? from.name : defaultWorkoutName(),
     location: from?.location || '',
-    templateId: from && state.templates.includes(from) ? from.id : null,
+    templateId: isTemplate ? from.id : null,
     start: new Date().toISOString(),
     notes: '',
-    entries: from
-      ? from.entries.map((e) => ({
-          exerciseId: e.exerciseId,
-          sets: Array.from({ length: Math.max(1, setCount(e)) }, () => ({ weight: '', reps: '', done: false }))
-        }))
-      : []
+    entries: from ? from.entries.map((e) => ({ exerciseId: e.exerciseId, sets: setsFor(e) })) : []
   };
   save();
   ui.tab = 'workout';
@@ -821,17 +900,17 @@ document.addEventListener('click', (ev) => {
     case 'finish': finishWorkout(); break;
     case 'start-template': startWorkout(state.templates.find((t) => t.id === id)); break;
     case 'new-template':
-      ui.draft = { id: null, name: '', location: '', entries: [] };
+      beginTemplateDraft(null);
       openTemplateEditor();
       setTimeout(() => $('#draft-name')?.focus(), 300);
       break;
     case 'edit-template': {
-      const t = state.templates.find((x) => x.id === id);
-      ui.draft = { ...t, entries: t.entries.map((e) => ({ ...e })) };
+      beginTemplateDraft(state.templates.find((x) => x.id === id));
       openTemplateEditor();
       break;
     }
     case 'save-template': saveTemplate(); break;
+    case 'cancel-template': cancelTemplateDraft(); break;
     case 'delete-template':
       if (confirm(`Delete the template “${ui.draft.name}”? Your past workouts are kept.`)) {
         state.templates = state.templates.filter((t) => t.id !== id);
@@ -840,13 +919,34 @@ document.addEventListener('click', (ev) => {
       break;
     case 'draft-add-exercise': openExercisePicker('template'); break;
     case 'back-to-template': openTemplateEditor(); break;
-    case 'draft-sets': {
-      const e = ui.draft.entries[ei];
-      e.sets = Math.min(20, Math.max(1, e.sets + +el.dataset.dir));
+    case 'draft-remove': {
+      const name = exName(ui.draft.entries[ei].exerciseId);
+      if (confirm(`Remove ${name} from this template?`)) { ui.draft.entries.splice(ei, 1); openTemplateEditor(); }
+      break;
+    }
+    case 'draft-move-ex': {
+      const entries = ui.draft.entries, to = ei + +el.dataset.dir;
+      if (to < 0 || to >= entries.length) break;
+      [entries[ei], entries[to]] = [entries[to], entries[ei]];
       openTemplateEditor();
       break;
     }
-    case 'draft-remove': ui.draft.entries.splice(ei, 1); openTemplateEditor(); break;
+    case 'draft-add-set': {
+      const sets = ui.draft.entries[ei].sets;
+      sets.push({ ...(sets[sets.length - 1] || emptyPlannedSet()) });
+      openTemplateEditor();
+      break;
+    }
+    case 'draft-remove-set': {
+      const sets = ui.draft.entries[ei].sets;
+      if (sets.length > 1) { sets.splice(si, 1); openTemplateEditor(); }
+      break;
+    }
+    case 'draft-move-set': {
+      const sets = ui.draft.entries[ei].sets;
+      if (si > 0) { [sets[si - 1], sets[si]] = [sets[si], sets[si - 1]]; openTemplateEditor(); }
+      break;
+    }
     case 'save-active-template': saveAsTemplate(state.active); break;
     case 'save-history-template': saveAsTemplate(state.workouts.find((w) => w.id === id)); break;
     case 'discard':
@@ -854,7 +954,7 @@ document.addEventListener('click', (ev) => {
       break;
     case 'add-exercise': openExercisePicker('pick'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
     case 'pick-exercise':
-      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: 3 }); openTemplateEditor(); }
+      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: defaultPlannedSets(id) }); openTemplateEditor(); }
       else addExerciseToWorkout(id);
       break;
     case 'create-exercise': openCategoryPicker($('#exercise-search').value.trim(), el.dataset.mode); break;
@@ -862,7 +962,7 @@ document.addEventListener('click', (ev) => {
       const ex = { id: uid(), name: el.dataset.name, category: el.dataset.category };
       state.exercises.push(ex);
       save();
-      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: 3 }); openTemplateEditor(); }
+      if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: defaultPlannedSets(ex.id) }); openTemplateEditor(); }
       else if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
       else openExercisePicker('manage');
       break;
@@ -945,6 +1045,12 @@ document.addEventListener('input', (ev) => {
     state.active.name = t.value; save();
   } else if (t.id === 'workout-location') {
     state.active.location = t.value; save();
+  } else if (t.dataset.tfield && ui.draft) {
+    // Template targets: weight typed in the selected unit and stored in kg, reps as a whole number.
+    const set = ui.draft.entries[+t.dataset.entry].sets[+t.dataset.set];
+    const v = num(t.value.replace(',', '.'));
+    if (t.dataset.tfield === 'weight') set.weight = v == null || v < 0 ? '' : toStoredWeight(v);
+    else set.reps = v == null || v < 0 ? '' : Math.round(v);
   } else if (t.id === 'draft-name') {
     ui.draft.name = t.value;
   } else if (t.id === 'draft-location') {
@@ -963,7 +1069,7 @@ document.addEventListener('change', (ev) => {
   if (ev.target.id === 'import-file' && ev.target.files[0]) { importData(ev.target.files[0]); ev.target.value = ''; }
 });
 
-$('#sheet-backdrop').addEventListener('click', closeSheet);
+$('#sheet-backdrop').addEventListener('click', () => (ui.draft ? cancelTemplateDraft() : closeSheet()));
 $('#rest-minus').addEventListener('click', () => { ui.restEnd -= 15000; tickRest(); });
 $('#rest-plus').addEventListener('click', () => { ui.restEnd += 15000; tickRest(); });
 $('#rest-skip').addEventListener('click', stopRest);

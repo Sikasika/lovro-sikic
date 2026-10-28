@@ -471,14 +471,35 @@ textarea.notes {
 }
 .template-tile.new .plus { font-size: 26px; line-height: 1; }
 
-.stepper { display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--muted); white-space: nowrap; }
-.stepper button {
-  width: 30px; height: 30px;
+/* Template editor */
+.icon-btn {
+  width: 36px; height: 36px;
   border: 0;
   border-radius: 8px;
   background: var(--input);
   color: var(--accent);
+  font-size: 17px;
   font-weight: 700;
+  flex: none;
+}
+.icon-btn.danger { color: var(--danger); }
+.icon-btn:disabled { opacity: 0.3; }
+.tpl-ex-actions { display: flex; gap: 6px; }
+.tpl-card .ex-head { gap: 8px; }
+.tpl-card .ex-name { min-width: 0; overflow-wrap: anywhere; }
+.tpl-sets th { font-size: 11px; }
+.tpl-sets td:last-child, .tpl-sets th:last-child { width: 92px; }
+.tpl-set-actions { white-space: nowrap; }
+.tpl-set-actions .icon-btn + .icon-btn { margin-left: 4px; }
+.tpl-card .ex-actions { align-items: center; }
+.tpl-card .ex-actions .sub { font-size: 13px; color: var(--muted); }
+.tpl-hint { font-size: 13px; color: var(--muted); margin: 10px 4px 0; }
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .location-row {
