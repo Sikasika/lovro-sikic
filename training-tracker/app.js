@@ -935,34 +935,70 @@ function startOfWeek(d) {
   return x;
 }
 
+/** Text for one record metric value, e.g. "100 kg", "8.00 km", "4:50 /km". */
+function recordValueText(metric, v, exerciseId) {
+  const kind = cardioKindOf(exerciseId);
+  if (metric === 'weight' || metric === 'e1rm') return `${fmtWeight(v)} ${unit()}`;
+  if (metric === 'distance') return fmtDistance(v, kind);
+  if (metric === 'pace') return `${fmtClock(paceSeconds(v, 1, kind))} ${paceUnit(kind)}`;
+  if (metric === 'speed') return `${fmtNum(speedValue(v, 1))} ${speedUnit()}`;
+  return `${fmtNum(v)} reps`;
+}
+const RECORD_LABELS = { weight: 'Heaviest', e1rm: 'Est. 1RM', reps: 'Most reps', distance: 'Longest', pace: 'Fastest pace', speed: 'Top speed' };
+
+/* Progress: quick summaries. Deeper analysis (frequency, breakdowns, every metric) is in Statistics. */
 function renderProgress() {
   const { items, today } = completedWorkouts();
   if (!items.length) {
     return `<div class="empty"><div class="big">📈</div>Finish a workout to see your progress.</div>`;
   }
-  const thisWeek = startOfWeek(today);
-  const weekCount = items.filter((it) => it.day >= thisWeek).length;
-  const streak = weekStreak(items, today);
+  const thisWeekStart = startOfWeek(today);
+  const lastWeekStart = sAddDays(thisWeekStart, -7);
+  const cur = summarizeWorkouts(items.filter((it) => it.day >= thisWeekStart));
+  const prev = summarizeWorkouts(items.filter((it) => it.day >= lastWeekStart && it.day < thisWeekStart));
+  const cell = (v, f) => (v == null ? '<span class="muted">–</span>' : f(v));
+  const timeCell = (x) => (x.minutes == null ? cell(null) : `${fmtHours(x.minutes)}${x.untimed ? '<sup>*</sup>' : ''}`);
+  const anyUntimed = cur.untimed || prev.untimed;
 
-  // Workouts per week, last 8 weeks.
-  const bars = weekBuckets(today, 8).map((b) => ({
-    label: b.s.toLocaleDateString(undefined, { day: 'numeric', month: 'numeric' }),
-    value: items.filter((it) => it.day >= b.s && it.day < b.e).length
-  }));
+  // Records set in the last 30 days (newest first).
+  const since = sAddDays(today, -29);
+  const recent = recordEvents(items).filter((ev) => sDay(new Date(ev.date)) >= since).reverse().slice(0, 6);
 
-  // Exercises that have history.
   const used = state.exercises.filter((ex) => items.some((it) => it.entries.some((e) => e.exerciseId === ex.id)));
   if (!ui.progressExercise || !used.some((e) => e.id === ui.progressExercise)) ui.progressExercise = used[0]?.id ?? null;
 
   return `
     <div class="stats" style="margin-top:12px">
-      <div class="stat"><div class="num">${weekCount}</div><div class="lbl">This week</div></div>
-      <div class="stat"><div class="num">${streak}</div><div class="lbl">Week streak (weeks in a row)</div></div>
       <div class="stat"><div class="num">${items.length}</div><div class="lbl">Total workouts</div></div>
+      <div class="stat"><div class="num">${weekStreak(items, today)}<small> wk</small></div><div class="lbl">Week streak</div><div class="stat-hint">Weeks in a row</div></div>
+      <div class="stat"><div class="num">${dayStreak(items, today)}<small> d</small></div><div class="lbl">Day streak</div><div class="stat-hint">Days in a row</div></div>
     </div>
 
-    <div class="section-title">Workouts per week</div>
-    <div class="card card-pad">${barChart(bars)}</div>
+    <div class="section-title">This week vs last week</div>
+    <div class="card">
+      <table class="compare">
+        <thead><tr><th></th><th>This week</th><th>Last week</th></tr></thead>
+        <tbody>
+          <tr><th>Workouts</th><td>${cur.count}</td><td>${prev.count}</td></tr>
+          <tr><th>Training time</th><td>${timeCell(cur)}</td><td>${timeCell(prev)}</td></tr>
+          <tr><th>Volume (${esc(unit())})</th><td>${cell(cur.volume, fmtWeight)}</td><td>${cell(prev.volume, fmtWeight)}</td></tr>
+          <tr><th>Cardio time</th><td>${cell(cur.cardioSec, fmtClock)}</td><td>${cell(prev.cardioSec, fmtClock)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="stats-note">Weeks start on Monday. – means nothing was recorded.${anyUntimed ? ' * Some workouts have no end time and are not included in training time.' : ''} Volume leaves out warm-up sets.</p>
+
+    <div class="section-title">Recent records · last 30 days</div>
+    ${recent.length ? `<div class="card">
+      ${recent.map((ev) => `
+        <div class="list-item">
+          <div class="grow">
+            <div class="truncate">${esc(exName(ev.exerciseId))}</div>
+            <div class="sub">${RECORD_LABELS[ev.metric]} ${esc(recordValueText(ev.metric, ev.value, ev.exerciseId))} · was ${esc(recordValueText(ev.metric, ev.prev, ev.exerciseId))}</div>
+          </div>
+          <span class="sub">${fmtDate(ev.date, { day: 'numeric', month: 'short' })}</span>
+        </div>`).join('')}
+    </div>` : `<div class="card card-pad stats-empty">No new records in the last 30 days. A record needs an earlier session of the same exercise to beat.</div>`}
 
     ${used.length ? `
       <div class="section-title">Exercise progress</div>
@@ -975,6 +1011,7 @@ function renderProgress() {
         </label>
       </div>
       ${renderExerciseProgress(ui.progressExercise, items)}` : ''}
+    <p class="stats-note">Workout frequency, breakdowns and every metric for each exercise are in Statistics.</p>
   `;
 }
 
@@ -1007,43 +1044,38 @@ function renderExerciseProgress(exerciseId, items) {
   `;
 }
 
-function barChart(bars) {
-  const W = 320, H = 140, pad = 20, max = Math.max(1, ...bars.map((b) => b.value));
-  const bw = (W - pad) / bars.length;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Workouts per week">
-    <line class="axis" x1="0" y1="${H - pad}" x2="${W}" y2="${H - pad}"/>
-    ${bars.map((b, i) => {
-      const h = (b.value / max) * (H - pad * 2);
-      const x = i * bw + bw * 0.2;
-      return `<rect class="bar ${i === bars.length - 1 ? '' : 'dim'}" x="${x}" y="${H - pad - h}" width="${bw * 0.6}" height="${Math.max(h, 0)}" rx="4"/>
-        ${b.value ? `<text class="lbl" x="${x + bw * 0.3}" y="${H - pad - h - 4}" text-anchor="middle">${b.value}</text>` : ''}
-        <text class="lbl" x="${x + bw * 0.3}" y="${H - 6}" text-anchor="middle">${b.label}</text>`;
-    }).join('')}
-  </svg>`;
-}
-
+/**
+ * Line chart of one value per session. Axis labels show only values that occur in the
+ * data (highest and lowest); the caption gives the number of sessions and the date range.
+ */
 function lineChart(points, fmt = fmtNum) {
-  const W = 320, H = 160, padX = 28, padY = 18;
+  const W = 320, H = 160, padX = 34, padY = 18;
   if (points.length < 2) {
-    return `<div class="empty" style="padding:24px">Log this exercise at least twice to see a trend.</div>`;
+    return `<div class="empty" style="padding:24px">${points.length ? 'Only one session so far. ' : ''}Log this at least twice to see a trend.</div>`;
   }
   const vals = points.map((p) => p.value);
-  let min = Math.min(...vals), max = Math.max(...vals);
-  if (min === max) { min -= 1; max += 1; }
+  const dMin = Math.min(...vals), dMax = Math.max(...vals);
+  let min = dMin, max = dMax;
+  if (min === max) { min -= 1; max += 1; } // flat line in the middle; labels still show the real value
   const x = (i) => padX + (i / (points.length - 1)) * (W - padX - 8);
   const y = (v) => padY + (1 - (v - min) / (max - min)) * (H - padY * 2);
   const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   const area = `${path} L${x(points.length - 1).toFixed(1)},${H - padY} L${x(0).toFixed(1)},${H - padY} Z`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress over time">
+  const first = new Date(points[0].date), last = new Date(points[points.length - 1].date);
+  const withYear = first.getFullYear() !== last.getFullYear() || last.getFullYear() !== new Date().getFullYear();
+  const dOpts = withYear ? { day: 'numeric', month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' };
+  const range = `${fmtDate(points[0].date, dOpts)} – ${fmtDate(points[points.length - 1].date, dOpts)}`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${points.length} sessions, ${esc(range)}. Highest ${esc(fmt(dMax))}, lowest ${esc(fmt(dMin))}.">
     <line class="axis" x1="${padX}" y1="${H - padY}" x2="${W}" y2="${H - padY}"/>
-    <text class="lbl" x="0" y="${y(max) + 3}">${fmt(max)}</text>
-    <text class="lbl" x="0" y="${y(min) + 3}">${fmt(min)}</text>
+    <text class="lbl" x="0" y="${y(dMax) + 3}">${fmt(dMax)}</text>
+    ${dMin !== dMax ? `<text class="lbl" x="0" y="${y(dMin) + 3}">${fmt(dMin)}</text>` : ''}
     <path class="area" d="${area}"/>
     <path class="line" d="${path}"/>
     ${points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.value)}" r="3"/>`).join('')}
-    <text class="lbl" x="${padX}" y="${H - 3}">${fmtDate(points[0].date, { day: 'numeric', month: 'short' })}</text>
-    <text class="lbl" x="${W - 8}" y="${H - 3}" text-anchor="end">${fmtDate(points[points.length - 1].date, { day: 'numeric', month: 'short' })}</text>
-  </svg>`;
+    <text class="lbl" x="${padX}" y="${H - 3}">${fmtDate(points[0].date, dOpts)}</text>
+    <text class="lbl" x="${W - 8}" y="${H - 3}" text-anchor="end">${fmtDate(points[points.length - 1].date, dOpts)}</text>
+  </svg>
+  <div class="chart-caption">${points.length} sessions · ${esc(range)}</div>`;
 }
 
 /** Progress for a cardio exercise: distance (or time) per session and its best values. */

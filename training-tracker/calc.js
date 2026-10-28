@@ -29,6 +29,12 @@
      ending today (or yesterday if nothing is logged yet today).
    - Week streak: consecutive Monday-start weeks with a completed
      workout, ending this week (or last week if none yet).
+   - Volume: weight × reps over completed, non-warm-up sets.
+   - Training time: workout start → end; workouts without an end time
+     are left out (and counted as "without duration"), never guessed.
+   - Cardio time: time logged on cardio sets only.
+   - A personal record needs an earlier session to beat: the first
+     session of an exercise sets the baseline, not a record.
    ========================================================= */
 
 const SCHEMA_VERSION = 2;
@@ -270,4 +276,63 @@ const LOWER_IS_BETTER = new Set(['pace']);
 function bestSession(sessions, metric) {
   const better = LOWER_IS_BETTER.has(metric) ? (a, b) => a < b : (a, b) => a > b;
   return sessions.filter((s) => s.v[metric] != null).reduce((a, s) => (!a || better(s.v[metric], a.v[metric]) ? s : a), null);
+}
+
+/* ---------- Period summaries and record events ---------- */
+
+/** Totals for a list of completed workouts. Values are null when nothing was recorded. */
+function summarizeWorkouts(items) {
+  const timed = items.filter((it) => it.min != null);
+  let volume = 0, weighted = false, cardioSec = 0;
+  for (const it of items) {
+    for (const e of it.entries) {
+      for (const st of completedSets(e)) {
+        const w = num(st.weight) || 0, r = num(st.reps) || 0;
+        if (st.type !== 'warmup' && w > 0 && r > 0) { volume += w * r; weighted = true; }
+        if (cardioKindOf(e.exerciseId)) cardioSec += num(st.duration) || 0;
+      }
+    }
+  }
+  return {
+    count: items.length,
+    minutes: timed.length ? timed.reduce((a, it) => a + it.min, 0) : null,
+    untimed: items.length - timed.length,
+    volume: weighted ? volume : null,
+    cardioSec: cardioSec > 0 ? cardioSec : null
+  };
+}
+
+/** Metrics that can set a personal record for an exercise. */
+function recordMetrics(exerciseId, sessions) {
+  const kind = cardioKindOf(exerciseId);
+  if (kind) {
+    const m = ['distance'];
+    if (paceUnit(kind)) m.push('pace'); else if (CARDIO_KINDS[kind].speed) m.push('speed');
+    return m;
+  }
+  return sessions.some((x) => x.v.weight != null) ? ['weight', 'e1rm'] : ['reps'];
+}
+
+/**
+ * Every time a session beat the best earlier session for a record metric, oldest first:
+ * { exerciseId, metric, value, prev, date }. Recomputed from saved workouts each time,
+ * so edits and deletions are reflected immediately.
+ */
+function recordEvents(items) {
+  const events = [];
+  const ids = [...new Set(items.flatMap((it) => it.entries.map((e) => e.exerciseId)))];
+  for (const id of ids) {
+    const sessions = exerciseSessions(items, id);
+    for (const m of recordMetrics(id, sessions)) {
+      const better = LOWER_IS_BETTER.has(m) ? (a, b) => a < b : (a, b) => a > b;
+      let best = null;
+      for (const ses of sessions) {
+        const v = ses.v[m];
+        if (v == null) continue;
+        if (best != null && better(v, best)) events.push({ exerciseId: id, metric: m, value: v, prev: best, date: ses.date });
+        if (best == null || better(v, best)) best = v;
+      }
+    }
+  }
+  return events.sort((a, b) => new Date(a.date) - new Date(b.date));
 }

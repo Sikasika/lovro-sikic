@@ -380,8 +380,6 @@ textarea.notes {
 .chart { width: 100%; height: auto; display: block; }
 .chart .axis { stroke: var(--separator); stroke-width: 1; }
 .chart .lbl { fill: var(--muted); font-size: 10px; }
-.chart .bar { fill: var(--accent); }
-.chart .bar.dim { fill: var(--accent-soft); }
 .chart .line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot { fill: var(--accent); }
 .chart .area { fill: var(--accent-soft); }
@@ -619,3 +617,15 @@ textarea.notes {
 .card.superset { box-shadow: inset 4px 0 0 var(--accent); }
 .tick { color: var(--accent); font-weight: 700; }
 .detail-set .cat-tag { align-self: center; }
+
+/* ---------- Progress summaries ---------- */
+.compare { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.compare th, .compare td { padding: 10px 16px; text-align: right; font-size: 15px; }
+.compare thead th { font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 600; padding-bottom: 4px; }
+.compare tbody th { text-align: left; font-weight: 400; color: var(--text); }
+.compare tbody tr + tr th, .compare tbody tr + tr td { border-top: 0.5px solid var(--separator); }
+.compare .muted { color: var(--muted); }
+.compare sup { color: var(--muted); }
+.stat .num small { font-size: 14px; font-weight: 600; color: var(--muted); }
+.stat .stat-hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.chart-caption { font-size: 12px; color: var(--muted); text-align: center; margin-top: 4px; }

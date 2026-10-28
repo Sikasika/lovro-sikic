@@ -244,7 +244,7 @@ function renderHeatmap(idx) {
           <span>Shorter</span>
           ${[1, 2, 3, 4].map((l) => `<i class="sw" style="background:${heatColor(f === 'all' ? 'weights' : f, l)}" title="${['Under 30 min', '30–59 min', '60–89 min', '90+ min'][l - 1]}"></i>`).join('')}
           <span>Longer</span>
-          <span class="legend-hint">&lt;30 · 30–59 · 60–89 · 90+ min per day</span>
+          <span class="legend-hint">&lt;30 · 30–59 · 60–89 · 90+ min of training per day. Days whose workouts have no end time use the lightest shade.</span>
         </div>
       </div>
     </div>`;
@@ -296,9 +296,11 @@ function renderSummary(idx) {
   const thisWeek = all.filter((it) => it.day >= weekStart).length;
   const thisMonth = all.filter((it) => it.day >= monthStart).length;
 
-  // Day streaks: calendar days with at least one workout (see calc.js).
+  // Day and week streaks are different metrics (see calc.js).
   const current = dayStreak(all, today);
   const longest = longestDayStreak(inPeriod);
+  const weeksInRow = weekStreak(all, today);
+  const sum = summarizeWorkouts(inPeriod);
   const weeks = Math.max(1, range.days / 7);
   const avg = inPeriod.length / weeks;
   const p = STAT_PERIODS.find((x) => x.id === ui.stats.period);
@@ -313,10 +315,12 @@ function renderSummary(idx) {
       ${card(inPeriod.length, 'Workouts', p.label)}
       ${card(known.length ? fmtHours(minutes) : '–', 'Training time', inPeriod.length - known.length ? `${inPeriod.length - known.length} without duration` : p.label)}
       ${card(fmtNum(avg), 'Avg / week', p.label)}
+      ${card(sum.volume == null ? '–' : fmtWeight(sum.volume), `Volume (${esc(unit())})`, sum.volume == null ? 'No weighted sets' : `${p.label}, no warm-ups`)}
       ${card(thisWeek, 'This week', 'Since Monday')}
       ${card(thisMonth, 'This month', today.toLocaleDateString(undefined, { month: 'long' }))}
       ${card(`${current}<small> d</small>`, 'Day streak', 'Days in a row')}
       ${card(`${longest}<small> d</small>`, 'Longest day streak', p.label)}
+      ${card(`${weeksInRow}<small> wk</small>`, 'Week streak', 'Weeks in a row')}
     </div>
     ${f !== 'all' ? `<p class="stats-note">Showing workouts that include ${typeLabel(f).toLowerCase()}.</p>` : ''}`;
 }
@@ -452,6 +456,7 @@ function renderFrequency(idx) {
   return `
     <div class="section-title">Training frequency</div>
     <div class="card card-pad">
+      <div class="stats-chart-title">Workouts per ${unitWord} (count)${f === 'all' ? ', by main activity' : ` with ${typeLabel(f).toLowerCase()}`}</div>
       <div class="freq-controls">
         <div class="segmented" role="group" aria-label="Group by">
           <button data-saction="freq-mode" data-v="week" class="${mode === 'week' ? 'on' : ''}" aria-pressed="${mode === 'week'}">Weekly</button>
@@ -632,7 +637,7 @@ function renderBreakdown(idx) {
     `<i class="sw" style="background:var(--heat-${t.id})"></i>${t.label}`,
     `${count} · ${Math.round((count / inPeriod.length) * 100)}%`,
     (count / inPeriod.length) * 100,
-    count ? `${fmtHours(min)}${unknown ? ` (+${unknown} without duration)` : ''}` : '',
+    !count ? '' : count === unknown ? 'Time not recorded' : `${fmtHours(min)}${unknown ? ` (+${unknown} without duration)` : ''}`,
     `var(--heat-${t.id})`
   )).join('');
 
@@ -643,16 +648,17 @@ function renderBreakdown(idx) {
   const dowMax = Math.max(1, ...dow);
   const dayNames = Array.from({ length: 7 }, (_, i) => sAddDays(startOfWeek(today), i).toLocaleDateString(undefined, { weekday: 'short' }));
 
-  // Muscle groups: completed sets per exercise category for strength exercises.
-  const muscles = new Map();
-  if (f === 'all' || f === 'weights') {
-    inPeriod.forEach((it) => it.entries.forEach((e) => {
-      if (entryType(e) !== 'weights') return;
-      const cat = exById(e.exerciseId)?.category || 'Other';
-      muscles.set(cat, (muscles.get(cat) || 0) + completedSets(e).length);
-    }));
-  }
-  const muscleTotal = [...muscles.values()].reduce((a, b) => a + b, 0);
+  // Every exercise category (strength muscle groups, Cardio, Sports, Other): exercise
+  // sessions and completed sets, limited to the activity filter.
+  const cats = new Map();
+  inPeriod.forEach((it) => it.entries.forEach((e) => {
+    if (f !== 'all' && entryType(e) !== f) return;
+    const c = catOf(exById(e.exerciseId));
+    const x = cats.get(c) || { sessions: 0, sets: 0 };
+    x.sessions++; x.sets += completedSets(e).length;
+    cats.set(c, x);
+  }));
+  const setTotal = [...cats.values()].reduce((a, x) => a + x.sets, 0);
 
   return `
     <div class="section-title">Breakdown · ${period.label}</div>
@@ -675,12 +681,11 @@ function renderBreakdown(idx) {
     </div>
 
     <div class="card card-pad" style="margin-top:12px">
-      <div class="stats-chart-title">Strength sets by muscle group</div>
-      ${f !== 'all' && f !== 'weights'
-        ? '<div class="stats-empty">Only available for weights.</div>'
-        : muscleTotal
-          ? [...muscles].sort((a, b) => b[1] - a[1]).map(([cat, n]) => hbar(esc(cat), `${n} sets · ${Math.round((n / muscleTotal) * 100)}%`, (n / muscleTotal) * 100)).join('')
-          : '<div class="stats-empty">No strength sets in this period.</div>'}
+      <div class="stats-chart-title">Sets by category${f === 'all' ? '' : ` · ${typeLabel(f)}`}</div>
+      ${setTotal
+        ? [...cats].sort((a, b) => b[1].sets - a[1].sets).map(([c, x]) => hbar(esc(c), `${x.sets} sets · ${Math.round((x.sets / setTotal) * 100)}%`, (x.sets / setTotal) * 100, `${x.sessions} exercise session${x.sessions === 1 ? '' : 's'}`)).join('')
+        : '<div class="stats-empty">No sets in this period.</div>'}
+      <p class="stats-note" style="margin:4px 0 0">Completed sets, warm-ups included. Categories come from Settings → Manage exercises.</p>
     </div>`;
 }
 
