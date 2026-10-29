@@ -101,6 +101,7 @@ function renderStatistics() {
       ${renderCardioSummary(idx)}
       ${renderFrequency(idx)}
       ${renderPerformance(idx)}
+      ${renderWeightStats()}
       ${renderBreakdown(idx)}
       ${idx.skipped ? `<p class="stats-note">${idx.skipped} workout${idx.skipped === 1 ? ' was' : 's were'} left out because ${idx.skipped === 1 ? 'it has' : 'they have'} no completed sets or an invalid date.</p>` : ''}
     `;
@@ -516,17 +517,10 @@ function renderPerformance(idx) {
   }
   const list = [...byEx.values()].sort((a, b) => b.count - a.count || exName(a.id).localeCompare(exName(b.id)));
 
-  const bodyWeight = `
-    <div class="card card-pad stats-empty" style="margin-top:12px">
-      <div style="font-weight:600">Body weight</div>
-      Body weight isn't recorded in the app, so there's nothing to chart yet.
-    </div>`;
-
   if (!list.length) {
     return `
       <div class="section-title">Performance</div>
-      <div class="card card-pad stats-empty">No exercises with completed sets${f === 'all' ? '' : ` for ${typeLabel(f).toLowerCase()}`} yet.</div>
-      ${bodyWeight}`;
+      <div class="card card-pad stats-empty">No exercises with completed sets${f === 'all' ? '' : ` for ${typeLabel(f).toLowerCase()}`} yet.</div>`;
   }
 
   const ex = list.find((x) => x.id === ui.stats.perfEx) || list[0];
@@ -590,8 +584,7 @@ function renderPerformance(idx) {
     </div>
     ${metrics.length ? `<div class="section-title">Personal records · ${esc(exName(ex.id))}</div><div class="stats-grid">${prs}</div>` : ''}
     ${kind && !hasDist ? `<p class="stats-note">No distance logged for ${esc(exName(ex.id))} yet, so there's no distance${paceUnit(kind) || CARDIO_KINDS[kind].speed ? ', pace or speed' : ''} to show.</p>` : ''}
-    ${kind && hasDist && !hasPace && (paceUnit(kind) || CARDIO_KINDS[kind].speed) ? `<p class="stats-note">Log distance and time in the same set to see ${paceUnit(kind) ? 'pace' : 'speed'}.</p>` : ''}
-    ${bodyWeight}`;
+    ${kind && hasDist && !hasPace && (paceUnit(kind) || CARDIO_KINDS[kind].speed) ? `<p class="stats-note">Log distance and time in the same set to see ${paceUnit(kind) ? 'pace' : 'speed'}.</p>` : ''}`;
 }
 
 /* ----- 5. Training breakdown ----- */

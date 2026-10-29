@@ -116,6 +116,8 @@ function insightCards(items, today) {
     cards.push({ icon: '🏅', title: `${recs.length} new record${recs.length === 1 ? '' : 's'} last week`,
       text: `${recs.slice(0, 2).map((ev) => `${exName(ev.exerciseId)}: ${RECORD_LABELS[ev.metric].toLowerCase()} ${recordValueText(ev.metric, ev.value, ev.exerciseId)}`).join('; ')}${recs.length > 2 ? '; …' : ''} (${lr}).` });
   }
+  const weight = weightInsightCard(L, P, lr, pr);
+  if (weight) cards.push(weight);
   const stale = notRecentCategories(items, today);
   if (stale.length) {
     cards.push({ icon: '🗓️', title: `Not logged in the last ${NOT_RECENT_DAYS} days`,
@@ -185,6 +187,7 @@ function renderWeekReport(items, today) {
           ${anySports ? row('Sports sessions', cur.sports, prev.sports, count) : ''}
           ${row('Cardio time', cur.cardioSec, prev.cardioSec, fmtClock, { curText: cardioTime(cur), prevText: cardioTime(prev), recorded: !cur.cardioUntimed && !prev.cardioUntimed })}
           ${row(`Strength volume (${esc(unit())})`, cur.volume, prev.volume, fmtWeight)}
+          ${weightReportRow(W.s, curEnd, P.s, prevEnd)}
           ${activities.map((id) => {
             // Unit in the label keeps the number cells short on narrow screens.
             const k = cardioKindOf(id);
@@ -198,7 +201,7 @@ function renderWeekReport(items, today) {
         <table class="compare report">
           <tbody>${cats.map((c) => row(esc(c), cur.categories.get(c) || 0, prev.categories.get(c) || 0, count)).join('')}</tbody>
         </table>` : ''}
-      <p class="stats-note" style="margin:8px 0 0">Mixed workouts count once for each type they include. Volume leaves out warm-up sets. Cardio time and distance are only what was logged on cardio sets; distances are not added across activities.</p>
+      <p class="stats-note" style="margin:8px 0 0">Mixed workouts count once for each type they include. Volume leaves out warm-up sets. Cardio time and distance are only what was logged on cardio sets; distances are not added across activities.${weighIns().length ? ' Body weight is the average of the weigh-ins in each period.' : ''}</p>
     </div>`;
 }
 

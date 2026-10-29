@@ -44,6 +44,7 @@ function defaultState() {
     workouts: [],
     templates: [],
     active: null,
+    bodyweights: [], // weigh-ins, see bodyweight.js
     settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6 },
     schemaVersion: SCHEMA_VERSION,
     cardioExercisesAdded: true
@@ -139,7 +140,8 @@ function save() {
 }
 
 const ui = { pendingRestore: null, tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null,
-  review: null, savedId: null, wkScroll: 0, tapGuardUntil: 0 }; // Workout tab state: see workout.js
+  review: null, savedId: null, wkScroll: 0, tapGuardUntil: 0, // Workout tab state: see workout.js
+  bw: { range: '3m', back: 'card', editId: null } }; // Body weight: see bodyweight.js
 
 /* ---------- Helpers ---------- */
 
@@ -838,7 +840,7 @@ const RECORD_LABELS = { weight: 'Heaviest', e1rm: 'Est. 1RM', reps: 'Most reps',
 function renderProgress() {
   const { items, today } = completedWorkouts();
   if (!items.length) {
-    return `<div class="empty"><div class="big">📈</div>Finish a workout to see your progress.</div>`;
+    return `${renderWeightCard()}<div class="empty" style="padding-top:28px"><div class="big">📈</div>Finish a workout to see your workout progress.</div>`;
   }
   const thisWeekStart = startOfWeek(today);
   const lastWeekStart = sAddDays(thisWeekStart, -7);
@@ -856,7 +858,10 @@ function renderProgress() {
   if (!ui.progressExercise || !used.some((e) => e.id === ui.progressExercise)) ui.progressExercise = used[0]?.id ?? null;
 
   return `
-    <div class="stats" style="margin-top:12px">
+    ${renderWeightCard()}
+
+    <div class="section-title">Workouts</div>
+    <div class="stats">
       <div class="stat"><div class="num">${items.length}</div><div class="lbl">Total workouts</div></div>
       <div class="stat"><div class="num">${weekStreak(items, today)}<small> wk</small></div><div class="lbl">Week streak</div><div class="stat-hint">Weeks in a row</div></div>
       <div class="stat"><div class="num">${dayStreak(items, today)}<small> d</small></div><div class="lbl">Day streak</div><div class="stat-hint">Days in a row</div></div>
@@ -1044,7 +1049,7 @@ function renderSettings() {
       <button class="list-item" data-action="reset" style="color:var(--danger)"><span class="grow">Erase all data</span></button>
     </div>
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
-    <p class="tpl-hint">A backup is one .json file with all workouts, templates, exercises and settings. Save it to Files or iCloud Drive. Your data is only stored on this device.</p>
+    <p class="tpl-hint">A backup is one .json file with all workouts, templates, exercises, weigh-ins and settings. Save it to Files or iCloud Drive. Your data is only stored on this device.</p>
 
     <div class="section-title">Install on iPhone</div>
     <div class="card card-pad" style="font-size:15px;color:var(--muted)">
@@ -1421,12 +1426,14 @@ document.addEventListener('click', (ev) => {
     case 'export-pre-update': exportPreUpdateCopy(); break;
     case 'import': $('#import-file').click(); break;
     case 'reset':
-      if (confirm('Erase ALL workouts, templates and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
+      if (confirm('Erase ALL workouts, templates, weigh-ins and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
         keepBeforeRestoreCopy();
         state = defaultState(); stopRest(); save(); applyTheme(); render(); toast('All data erased');
       }
       break;
-    default: handleWorkoutAction(action, el, ei, si); // Workout tab actions (workout.js)
+    default:
+      // Workout tab actions (workout.js), then body weight (bodyweight.js).
+      if (!handleWorkoutAction(action, el, ei, si)) handleWeightAction(action, el);
   }
 });
 

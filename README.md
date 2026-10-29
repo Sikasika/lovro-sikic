@@ -20,15 +20,16 @@ Features:
   rest timer, Finish), large ✓ targets, "previous" column, planned targets, warm-up/working/drop
   sets, exercise notes, supersets. Finish shows a summary before saving.
 - History: workout details, edit any past workout, repeat, save as template
-- Progress: streaks, this week vs last week, recent records, per-exercise chart
+- Progress: body weight (quick entry for today, 7-day average, target progress, 30-day chart,
+  edit/delete weigh-ins), streaks, this week vs last week, recent records, per-exercise chart
 - Statistics: activity heatmap, summaries, frequency, performance charts and records,
-  cardio (distance, pace, speed), breakdowns by activity type, weekday and category
+  cardio (distance, pace, speed), body-weight chart, breakdowns by activity type, weekday and category
 - Settings: metric/imperial units, exercise library (rename, categories incl. Sports,
   archive), backup export, validated restore with undo
 
 Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
 calculations), `backup.js` (backup format and restore), `workout.js` (Workout tab: start,
-live session, finishing, rest timer), `app.js` (other screens, editors, events), `stats.js`
+live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 
 Releasing a change: bump `CACHE` in `training-tracker/sw.js` (and add any new file to

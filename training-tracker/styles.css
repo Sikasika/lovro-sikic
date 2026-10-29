@@ -958,3 +958,59 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
   .finish-btn { padding: 0 12px; }
   .sb-name { font-size: 17px; }
 }
+
+/* ==========================================================================
+   Body weight (bodyweight.js): Progress card, sheets, chart
+   ========================================================================== */
+.bw-entry-card { padding: 12px 14px 8px; }
+.bw-entry { display: flex; gap: 10px; align-items: stretch; }
+.bw-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--input);
+}
+.bw-input-wrap:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+.bw-input {
+  flex: 1;
+  min-width: 0;
+  height: 50px;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bw-input::placeholder { color: var(--muted); opacity: 0.5; }
+.bw-unit { color: var(--muted); font-weight: 600; font-size: 15px; }
+.bw-log { width: auto; flex: none; min-height: 50px; padding: 0 16px; }
+.bw-entry-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 14px; color: var(--muted); }
+.bw-entry-sub .link.small { padding: 6px 0; }
+.bw-entry-sub b { color: var(--text); }
+
+.bw-goal .grow { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bw-goal-top { display: flex; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.bw-goal-top > span:last-child { color: var(--muted); font-size: 15px; white-space: nowrap; }
+.bw-goal-top > span.bw-reached { color: var(--success); font-weight: 700; }
+.bw-bar { display: block; height: 8px; border-radius: 999px; background: var(--input); overflow: hidden; }
+.bw-bar > span { display: block; height: 100%; background: var(--success); border-radius: 999px; }
+
+.bw-row-val { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bw-row-val .sub { font-size: 12px; }
+
+.chart .wdot { fill: var(--muted); opacity: 0.55; }
+.chart .target { stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.chart .target-lbl { fill: var(--success); }
+.bw-chart .line { stroke-width: 2.5; }
+
+.backup-keep { box-shadow: inset 4px 0 0 var(--success); font-size: 15px; }
+
+@media (max-width: 359px) {
+  .bw-log { padding: 0 12px; font-size: 15px; }
+  .bw-input { font-size: 22px; }
+}

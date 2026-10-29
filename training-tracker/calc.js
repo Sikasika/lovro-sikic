@@ -65,6 +65,22 @@
      earlier value. It describes logged data only.
    - Reps at comparable weights: working sets at exactly the same weight
      in at least 2 sessions; first vs latest session's most reps.
+
+   Body weight
+   - One weigh-in per calendar day (date 'YYYY-MM-DD', weight in kg).
+     Weigh-ins outside 20–400 kg or dated in the future are not accepted.
+   - 7-day average at a day: the mean of the weigh-ins dated in the 7
+     days ending on that day (that day and the 6 before). Days without
+     a weigh-in are skipped, never filled in. The headline 7-day average
+     ends on the latest weigh-in.
+   - Change of the 7-day average: compared with the 7-day average ending
+     7 days earlier; shown only when each window has at least 2 weigh-ins.
+   - Weekly comparison in Insights: mean of the weigh-ins in each week
+     (same days rule as other Insights); a highlight needs at least
+     2 weigh-ins in each of the last two complete weeks.
+   - Target progress: from the starting weight saved with the target to
+     the target, using the current 7-day average; the direction (lose or
+     gain) follows from start vs target. Progress is 0–100%.
    ========================================================= */
 
 const SCHEMA_VERSION = 2;
@@ -484,4 +500,70 @@ function repsAtWeights(sessions) {
     .sort((a, b) => b[1].length - a[1].length || b[0] - a[0])
     .slice(0, 3)
     .map(([weight, list]) => ({ weight, sessions: list.length, first: list[0], last: list[list.length - 1] }));
+}
+
+/* ---------- Body weight ---------- */
+
+const WEIGHT_MIN_KG = 20;
+const WEIGHT_MAX_KG = 400;
+const WEIGHT_AVG_DAYS = 7;
+/** Weigh-ins needed in each window before two averages are compared. */
+const WEIGHT_COMPARE_MIN = 2;
+
+const isDateKey = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && sKey(sFromKey(v)) === v;
+const validWeightKg = (v) => typeof v === 'number' && Number.isFinite(v) && v >= WEIGHT_MIN_KG && v <= WEIGHT_MAX_KG;
+
+/** Valid weigh-ins, oldest first, each with its local day as a Date. */
+function weighIns(list = state.bodyweights) {
+  return (Array.isArray(list) ? list : [])
+    .filter((w) => w && isDateKey(w.date) && validWeightKg(w.kg))
+    .map((w) => ({ ...w, day: sFromKey(w.date) }))
+    .sort((a, b) => a.day - b.day);
+}
+
+/** Mean of the weigh-ins with from <= day < to. { avg, n } or null. */
+function weightMeanBetween(list, from, to) {
+  const xs = list.filter((w) => w.day >= from && w.day < to);
+  return xs.length ? { avg: xs.reduce((a, w) => a + w.kg, 0) / xs.length, n: xs.length } : null;
+}
+
+/** 7-day average ending on `endDay` (inclusive). { avg, n, from, to } or null. */
+function weightAverage(list, endDay, days = WEIGHT_AVG_DAYS) {
+  const from = sAddDays(endDay, -(days - 1));
+  const m = weightMeanBetween(list, from, sAddDays(endDay, 1));
+  return m && { ...m, from, to: endDay };
+}
+
+/** The 7-day average at each weigh-in, for charts: [{ date, value }]. */
+function weightAverageSeries(list) {
+  return list.map((w) => ({ date: w.day, value: weightAverage(list, w.day).avg }));
+}
+
+/**
+ * Current 7-day average (ending on the latest weigh-in) and its change vs the
+ * 7-day average ending `days` earlier; change is null unless both windows have
+ * at least WEIGHT_COMPARE_MIN weigh-ins.
+ */
+function weightTrend(list, days = 7) {
+  if (!list.length) return null;
+  const end = list[list.length - 1].day;
+  const cur = weightAverage(list, end);
+  const prev = weightAverage(list, sAddDays(end, -days));
+  const comparable = cur && prev && cur.n >= WEIGHT_COMPARE_MIN && prev.n >= WEIGHT_COMPARE_MIN;
+  return { latest: list[list.length - 1], cur, prev, change: comparable ? cur.avg - prev.avg : null };
+}
+
+/**
+ * Progress toward a target: { direction: 'lose' | 'gain', pct (0–100), toGo (kg, >= 0), reached }.
+ * goal = { targetKg, startKg }; current = current 7-day average (kg).
+ */
+function weightGoalProgress(goal, current) {
+  if (!goal || !validWeightKg(goal.targetKg) || !validWeightKg(goal.startKg) || current == null) return null;
+  const { targetKg: target, startKg: start } = goal;
+  const direction = target < start ? 'lose' : 'gain';
+  const total = Math.abs(start - target);
+  const done = direction === 'lose' ? start - current : current - start;
+  const reached = direction === 'lose' ? current <= target : current >= target;
+  const pct = reached ? 100 : total ? Math.max(0, Math.min(100, (done / total) * 100)) : 100;
+  return { direction, pct, toGo: reached ? 0 : Math.abs(current - target), reached, target, start };
 }
