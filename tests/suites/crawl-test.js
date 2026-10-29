@@ -162,6 +162,33 @@ const data = {
     await page.click('[data-action=finish]'); await wait(); await inspect('Finish run with planned vs actual');
     await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
   }
+  // Swimming and cycling plans (one sport plan at a time: stop the running plan first)
+  await page.evaluate(() => { const p = runningPlans(state).find((x) => x.kind === 'run'); if (p) stopPlan(state, p.id); state.active = null; save(); render(); });
+  await tab('plans'); await page.click('[data-action=swim-setup]'); await wait(); await inspect('Swim setup');
+  await page.evaluate(() => { const d = (new Date().getDay() + 6) % 7; Object.assign(ui.sportSetup, { goal: 'event', target: '1500', eventDate: sKey(sAddDays(new Date(), 70)), cont: '800', pace: '2:00', sessions: '3', weekly: '5000', experience: 'some', days: [d, (d + 2) % 7, (d + 4) % 7] }); openSportSetup('swim', true); }); await wait();
+  await inspect('Swim setup filled');
+  await page.click('[data-action=ss-review]'); await wait(); await inspect('Swim review');
+  await page.click('[data-action=ss-start]'); await wait(); await inspect('Plans with a swim plan');
+  await page.click('.plan-card >> nth=1 >> .plan-sess >> nth=0'); await wait(); await inspect('Swim session');
+  await page.click('#sheet [data-action=review][data-kind=planned]'); await wait();
+  if (await page.$('#sheet [data-action=begin]')) {
+    await inspect('Swim review before start');
+    await page.click('#sheet [data-action=begin]'); await wait(600); await inspect('Planned swim');
+    await page.fill('[data-field=distance][data-entry="0"][data-set="0"]', '1200'); await page.fill('[data-field=duration][data-entry="0"][data-set="0"]', '30:00');
+    await page.click('[data-action=toggle-set][data-entry="0"][data-set="0"]'); await wait();
+    if (await page.isVisible('#sb-rest')) await page.click('[data-action=rest-skip]');
+    await page.click('[data-action=finish]'); await wait(); await inspect('Finish swim with planned vs actual');
+    await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
+  }
+  await shut();
+  await page.evaluate(() => { const p = runningPlans(state).find((x) => x.kind === 'swim'); if (p) stopPlan(state, p.id); state.active = null; save(); render(); });
+  await tab('plans'); await page.click('[data-action=ride-setup]'); await wait(); await inspect('Cycling setup');
+  await page.evaluate(() => { const d = (new Date().getDay() + 6) % 7; Object.assign(ui.sportSetup, { goal: 'event', target: '100', eventDate: sKey(sAddDays(new Date(), 70)), weekly: '3', rides: '3', longest: '1.5', speed: '25', ftp: '220', maxHr: '185', setting: 'both', experience: 'some', days: [d, (d + 2) % 7, (d + 4) % 7, (d + 5) % 7], longDay: String((d + 5) % 7) }); openSportSetup('bike', true); }); await wait();
+  await inspect('Cycling setup filled');
+  await page.click('[data-action=ss-review]'); await wait(); await inspect('Cycling review');
+  await page.click('[data-action=ss-start]'); await wait(); await inspect('Plans with a cycling plan');
+  await page.click('.plan-card >> nth=1 >> .plan-sess >> nth=0'); await wait(); await inspect('Ride session');
+  await page.click('#sheet [data-action=plan-open]'); await wait(); await inspect('Cycling schedule'); await shut();
   await page.screenshot({ path: `${SP}/crawl-${width}-${scheme}.png` });
   console.log(`width ${width} ${scheme}: ${screens} screens checked`);
   console.log('problems:', problems.length ? '\n  ' + [...new Set(problems)].join('\n  ') : 'none');

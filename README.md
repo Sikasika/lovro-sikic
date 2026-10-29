@@ -42,6 +42,22 @@ Features:
   or end with an optional time trial. Full review before starting; runs open the logger with
   their steps, paces/effort and a distance/time target; planned vs actual distance, time and
   (easy runs) pace. One running plan alongside one strength program; same-day warnings
+- Swim plans (fitness, a distance or an event): built around the longest swim without stopping
+  (required), pool length and unit (25 m, 50 m, 25 yd), optional pace per 100 (used only for a
+  swim of 200+), current sessions/distance, days, experience, injuries. Levels starter /
+  developing / intermediate / advanced decide session size, rest at the wall, drills (simple
+  ones for beginners) and threshold sets (intermediate+ only). Sessions: warm-up, drills, main
+  set (repeats with rest, or a continuous swim), cool-down, in whole lengths. No single swim
+  longer than the current continuous distance plus a small weekly step; ≤10% (or 100 m) weekly
+  growth, recovery every 4th week, taper and the event on its day; injury: ~75% held steady.
+- Cycling plans (fitness, a distance or an event): by time and effort; power ranges only from a
+  measured FTP, heart rate only from a measured max, outdoor distances only from a given usual
+  speed (as a flexible range). Endurance, long, recovery rides; tempo / sweet spot / hard
+  intervals only for riders with base (none for beginners or with an injury); week 1 ≤ current
+  + 30 min, ≤10% (or 20 min) weekly growth, recovery every 4th week, taper and the event on its
+  day; injury: ~75% held steady. Swims and rides are tagged (Swim / Ride) and logged as one
+  Swimming / Cycling set with a distance / time target; planned vs actual shows distance, time,
+  pace per 100 (swims, rests included) or time, distance and average speed (rides).
 - Planned workouts: per-exercise targets (sets × rep range), swap an exercise for the day
   (recorded as "instead of …"), planned vs actual on the Finish screen and in History. The
   next-weight recommendation uses the program's rep range; 8–12 everywhere else
@@ -69,7 +85,8 @@ Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
 calculations), `backup.js` (backup format and restore), `workout.js` (Train tab: start,
 live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `plans.js` (plan data, session
 statuses, links), `programs.js` (built-in programs, schedules, planned workouts), `run-plan.js`
-(running fitness, paces and plan generator),
+(running fitness, paces and plan generator), `swim-plan.js`, `ride-plan.js` (swimming and
+cycling plan generators),
 `plans-ui.js` (Plans tab), `home.js` (Today, Plans, Progress sections), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 

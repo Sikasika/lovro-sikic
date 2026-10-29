@@ -95,6 +95,8 @@ function planProblems(p, label = 'A plan') {
       if (s.targets != null && !isPlainObject(s.targets)) out.push(`${here} has invalid targets.`);
       else if (s.targets?.exercises != null && !(Array.isArray(s.targets.exercises) && s.targets.exercises.every(validPlannedExercise))) out.push(`${here} has invalid exercise targets.`);
       else if (s.targets?.run != null && !validRunTarget(s.targets.run)) out.push(`${here} has an invalid run.`);
+      else if (s.targets?.swim != null && !validSwimTarget(s.targets.swim)) out.push(`${here} has an invalid swim.`);
+      else if (s.targets?.ride != null && !validRideTarget(s.targets.ride)) out.push(`${here} has an invalid ride.`);
     });
   });
   if (!keys.size) out.push(`${name} has no sessions.`);
@@ -108,7 +110,17 @@ const validPlannedExercise = (x) => validTarget(x) && typeof x.name === 'string'
 /** A planned run: total km, estimated minutes and its parts (see run-plan.js). */
 const validRunTarget = (r) => isPlainObject(r) && typeof r.km === 'number' && r.km >= 0 && r.km <= 100 && Number.isFinite(r.estMin) && Array.isArray(r.parts) && r.parts.every((p) => isPlainObject(p) && typeof p.t === 'string') &&
   (r.pace == null || (Array.isArray(r.pace) && r.pace.length === 2 && r.pace.every((x) => Number.isFinite(x) && x > 0)));
-const validPlannedRunItem = (x) => isPlainObject(x) && x.run === true && typeof x.exerciseId === 'string' && x.exerciseId !== '' && Number.isFinite(x.distanceM) && x.distanceM >= 0;
+/** A planned swim: pool, total distance (pool units and metres), parts with whole-number distances, reps and rests. */
+const validSwimTarget = (w) => isPlainObject(w) && isPlainObject(w.pool) && [25, 50].includes(w.pool.len) && ['m', 'yd'].includes(w.pool.unit) &&
+  Number.isFinite(w.total) && w.total > 0 && Number.isFinite(w.totalM) && w.totalM > 0 && Number.isFinite(w.estMin) && Array.isArray(w.parts) && w.parts.length > 0 &&
+  w.parts.every((p) => isPlainObject(p) && ['wu', 'cd', 'drill', 'set', 'cont', 'race'].includes(p.t) && Number.isInteger(p.d) && p.d > 0 &&
+    (p.n == null || (Number.isInteger(p.n) && p.n >= 1 && p.n <= 100)) && (p.rest == null || (Number.isFinite(p.rest) && p.rest >= 0 && p.rest <= 600)));
+/** A planned ride: minutes, parts (minutes, reps), optional power/heart-rate/distance ranges. */
+const validRideTarget = (r) => isPlainObject(r) && Number.isFinite(r.min) && r.min >= 0 && r.min <= 24 * 60 && Array.isArray(r.parts) && r.parts.length > 0 &&
+  r.parts.every((p) => isPlainObject(p) && ['wu', 'cd', 'steady', 'reps', 'openers', 'event'].includes(p.t) && Number.isFinite(p.min) && p.min >= 0) &&
+  [r.power, r.hr, r.kmRange].every((x) => x == null || (Array.isArray(x) && x.length === 2 && x.every((v) => Number.isFinite(v) && v >= 0)));
+const validPlannedRunItem = (x) => isPlainObject(x) && (x.run === true || x.swim === true || x.ride === true) && typeof x.exerciseId === 'string' && x.exerciseId !== '' &&
+  (x.distanceM == null ? x.run !== true && x.swim !== true : Number.isFinite(x.distanceM) && x.distanceM >= 0) && (x.durationSec == null || (Number.isFinite(x.durationSec) && x.durationSec >= 0));
 const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const validPlanLink = (l) => isPlainObject(l) && typeof l.planId === 'string' && l.planId !== '' && typeof l.sessionKey === 'string' && l.sessionKey !== '';
 

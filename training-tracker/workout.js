@@ -202,7 +202,7 @@ function openStartChooser() {
               <button type="button" class="tpl-main" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">
                 <span class="tpl-badge act-weights" aria-hidden="true">${esc(initials(s.title))}</span>
                 <span class="grow"><span class="tpl-name truncate">Today: ${esc(s.title)}</span>
-                  <span class="tpl-sub truncate">${esc(plan.name)} · Week ${esc(s.week)} · ${s.targets?.run ? esc(runKmText(s.targets.run.km)) : plural(s.targets?.exercises?.length || 0, 'exercise')}</span></span>
+                  <span class="tpl-sub truncate">${esc(plan.name)} · Week ${esc(s.week)} · ${sportLengthText(s.targets) ? esc(sportLengthText(s.targets)) : plural(s.targets?.exercises?.length || 0, 'exercise')}</span></span>
                 <span class="chev" aria-hidden="true">›</span>
               </button>
             </div>`).join('')}</div>`;
@@ -281,7 +281,7 @@ function openPlannedReview(id) {
   ui.review = { kind: 'planned', id };
   const items = s.targets?.exercises || [];
   const sets = items.reduce((n, x) => n + x.sets, 0);
-  const run = s.targets?.run;
+  const sport = s.targets?.run || s.targets?.swim || s.targets?.ride;
   openSheet(`
     <div class="sheet-head">
       <button type="button" class="link" data-action="close-sheet">Cancel</button>
@@ -290,11 +290,11 @@ function openPlannedReview(id) {
     </div>
     <div class="sheet-body review">
       <div class="review-name">${esc(s.title)}</div>
-      <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${run ? '' : ` · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}`}</div>
+      <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${sport ? '' : ` · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}`}</div>
       ${s.targets?.deload ? '<div class="plan-flag">Lighter week</div>' : ''}
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
       ${s.status === 'completed' || s.status === 'skipped' ? `<div class="finish-note"><span aria-hidden="true">i</span><div>This session is marked ${esc(s.status)}. Logging it now links the new workout to it.</div></div>` : ''}
-      ${run ? runDetailsHtml(run) : `<div class="card review-list">
+      ${sport ? sportDetailsHtml(s.targets) : `<div class="card review-list">
         ${items.map((x) => `
           <div class="rv-ex">
             <div class="rv-name"><span class="act-dot act-weights" aria-hidden="true"></span>${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div>
@@ -457,6 +457,15 @@ function renderEntry(entry, i, letters = []) {
 /** Plan context shown above the exercises of a planned workout. */
 function planBanner(w) {
   const p = w.planned;
+  if (p.kind === 'swim' || p.kind === 'ride') {
+    const lines = p.kind === 'swim' ? (p.swim ? swimPartsText(p.swim) : []) : (p.ride ? ridePartsText(p.ride) : []);
+    const effort = (p.swim || p.ride)?.effort || '';
+    return `<div class="plan-banner sport-${p.kind}">
+      <div class="plan-banner-top"><span class="sport-tag sport-${p.kind}">${p.kind === 'swim' ? 'Swim' : 'Ride'}</span><span class="truncate">${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''}</span></div>
+      ${lines.length ? `<ol class="run-parts compact">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ol><div class="plan-banner-sub">${esc(effort)}</div>` : ''}
+      <div class="plan-banner-sub">${p.kind === 'swim' ? 'Log the swim as one set: total distance and time (rests included).' : 'Log the ride as one set: time, and distance if you have it.'}</div>
+    </div>`;
+  }
   if (p.kind === 'run') {
     return `<div class="plan-banner">
       <div class="plan-banner-top"><span class="plan-tag">Plan</span><span class="truncate">${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''}</span></div>
@@ -654,6 +663,28 @@ function swapExercise(ei, exerciseId) {
 function plannedVsActualHtml(w) {
   const pva = plannedVsActual(w);
   if (!pva) return '';
+  if (pva.sport) {
+    const st = { done: 'Done', partial: 'Partly done', skipped: 'Not done' }[pva.status];
+    const swim = pva.sport === 'swim';
+    const dist = (m) => (swim ? fmtDistance(m, 'swim') : runKmText(m / 1000));
+    const main = swim
+      ? `Distance ${pva.doneM ? esc(dist(pva.doneM)) : '–'} of ${esc(dist(pva.plannedM))}`
+      : `Time ${pva.doneSec ? esc(rideTime(pva.doneSec / 60)) : '–'} of ${esc(rideTime((pva.plannedSec || 0) / 60))}`;
+    const sub = swim
+      ? `${pva.doneSec ? `Time ${fmtClock(pva.doneSec)}` : 'No time logged'}${pva.plannedSec ? ` · planned about ${Math.round(pva.plannedSec / 60)} min` : ''}${pva.pace100 ? ` · ${fmtClock(pva.pace100 * (isImperial() ? 0.9144 : 1))} per 100 ${isImperial() ? 'yd' : 'm'} including rests` : ''}`
+      : `${pva.doneM ? `Distance ${esc(runKmText(pva.doneM / 1000))}` : 'No distance logged'}${pva.plannedM ? ` · planned about ${esc(runKmText(pva.plannedM / 1000))} (terrain varies)` : ''}${pva.speed ? ` · average ${esc(fmtNum(pva.speed * (isImperial() ? 1 / 1.609344 : 1)))} ${isImperial() ? 'mph' : 'km/h'}` : ''}`;
+    return `
+    <div class="section-title">Planned vs actual</div>
+    <div class="card card-pad pva">
+      <div class="pva-head">${esc(w.planned.title)}${w.planned.week ? ` · Week ${esc(w.planned.week)}` : ''}</div>
+      <div class="pva-row pva-${pva.status}">
+        <span class="pva-ic" aria-hidden="true">${{ done: '✓', partial: '◐', skipped: '–' }[pva.status]}</span>
+        <span class="grow"><span class="pva-name">${main}</span><span class="pva-sub">${sub}</span></span>
+        <span class="pva-status">${st}</span>
+      </div>
+      ${pva.others.length ? `<div class="pva-sub" style="margin-top:6px">Also logged: ${esc(pva.others.map(exName).join(', '))}</div>` : ''}
+    </div>`;
+  }
   if (pva.run) {
     const st = { done: 'Done', partial: 'Partly done', skipped: 'Not done' }[pva.status];
     const paceTxt = pva.pace ? `${fmtClock(pva.pace * (isImperial() ? M_PER_MI / 1000 : 1))} ${isImperial() ? '/mi' : '/km'}` : null;

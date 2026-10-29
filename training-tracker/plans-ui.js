@@ -9,6 +9,20 @@
   Loaded after programs.js and before app.js; runs only when called.
 */
 
+/** Which sport a session belongs to, its tag, its details and its length text. */
+const sessionSport = (s) => (s?.targets?.run ? 'run' : s?.targets?.swim ? 'swim' : s?.targets?.ride ? 'ride' : 'strength');
+const SPORT_LABEL = { run: 'Run', swim: 'Swim', ride: 'Ride', strength: 'Strength' };
+const sportTag = (s) => `<span class="sport-tag sport-${sessionSport(s)}">${SPORT_LABEL[sessionSport(s)]}</span>`;
+function sportDetailsHtml(t) {
+  return t?.run ? runDetailsHtml(t.run) : t?.swim ? swimDetailsHtml(t.swim) : t?.ride ? rideDetailsHtml(t.ride) : '';
+}
+function sportLengthText(t) {
+  if (t?.run) return runKmText(t.run.km);
+  if (t?.swim) return `${t.swim.total.toLocaleString()} ${t.swim.pool.unit} · about ${t.swim.estMin} min`;
+  if (t?.ride) return t.ride.eventKm ? `${Math.round(t.ride.eventKm * (isImperial() ? 1 / 1.609344 : 1))} ${isImperial() ? 'mi' : 'km'}` : rideTime(t.ride.min);
+  return null;
+}
+
 const STATUS_LABEL = { completed: 'Done', 'in-progress': 'In progress', skipped: 'Skipped', cancelled: 'Cancelled', missed: 'Missed', today: 'Today', upcoming: 'Upcoming' };
 const statusChip = (s) => `<span class="pstatus ps-${s.status}">${STATUS_LABEL[s.status]}${s.manual ? ' (marked)' : ''}</span>`;
 /** The setup answers stored with a plan (not the screen's own fields). */
@@ -45,18 +59,30 @@ function renderPlans() {
           <span class="chev" aria-hidden="true">›</span>
         </button>`).join('')}
     </div>
-    <div class="section-title">${hasSport ? 'Running plans' : 'Start a running plan'}</div>
-    ${hasSport ? '<p class="tpl-hint" style="margin-top:0">One running plan at a time (alongside one strength program). Stop the current one to start another.</p>' : ''}
+    <div class="section-title">${hasSport ? 'Running, swimming and cycling plans' : 'Start a running, swimming or cycling plan'}</div>
+    ${hasSport ? '<p class="tpl-hint" style="margin-top:0">One running, swimming or cycling plan at a time (alongside one strength program). Stop the current one to start another.</p>' : ''}
     <div class="card">
       ${Object.entries(RUN_GOALS).map(([id, g]) => `
         <button type="button" class="list-item prog-lib" data-action="run-setup" data-id="${id}"${hasSport ? ' disabled' : ''}>
-          <span class="grow"><span class="prog-lib-name">${g.label} plan</span>
+          <span class="grow"><span class="prog-lib-name"><span class="sport-tag sport-run">Run</span> ${g.label} plan</span>
             <span class="sub">For a race or a time goal · 6–16 weeks</span>
             <span class="prog-lib-sum">Built from your current running: easy runs, a long run and (with some experience) one or two harder sessions. Paces from a recent result, or by effort.</span></span>
           <span class="chev" aria-hidden="true">›</span>
         </button>`).join('')}
+      <button type="button" class="list-item prog-lib" data-action="swim-setup"${hasSport ? ' disabled' : ''}>
+        <span class="grow"><span class="prog-lib-name"><span class="sport-tag sport-swim">Swim</span> Swim plan</span>
+          <span class="sub">Fitness, a distance or an event · 6–16 weeks</span>
+          <span class="prog-lib-sum">Built around how far you can swim without stopping: technique, endurance and (for stronger swimmers) threshold sets, with rest at the wall.</span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="list-item prog-lib" data-action="ride-setup"${hasSport ? ' disabled' : ''}>
+        <span class="grow"><span class="prog-lib-name"><span class="sport-tag sport-ride">Ride</span> Cycling plan</span>
+          <span class="sub">Fitness, a distance or an event · 6–16 weeks · indoor or outdoor</span>
+          <span class="prog-lib-sum">Endurance, long and easy rides by time and effort; structured intervals for riders with enough base. Power and heart-rate ranges only from your own numbers.</span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
     </div>
-    <p class="tpl-hint">Swimming, cycling and triathlon plans are coming in later updates.</p>
+    <p class="tpl-hint">Triathlon plans are coming in a later update.</p>
     ${past.length ? `<div class="section-title">Past plans</div>
       <div class="card">${past.map((p) => {
         const pr = planProgress(p, state, today);
@@ -95,15 +121,15 @@ function planCard(plan, today) {
         <span><b>${pr.completed}</b> done</span><span><b>${pr.missed}</b> missed</span><span><b>${pr.skipped}</b> skipped</span><span><b>${pr.total - pr.due}</b> to go</span>
       </div>
       ${planUpdateAvailable(plan) ? '<div class="sub" style="margin-top:6px">A newer version of this program exists. Your schedule stays as it was when you started.</div>' : ''}
-      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}${plan.kind === 'run' ? ` · ${esc(week.label || '')} · ${esc(runKmText(runWeekDoneKm(thisWeek)))} of ${esc(runKmText(week.km || 0))}` : ''}</div>
+      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}${plan.kind !== 'strength' ? ` · ${esc(week.label || '')} · ${esc(weekDoneText(plan, week, thisWeek))}` : ''}</div>
       <div class="plan-sessions">${thisWeek.map((s) => sessionRow(plan, s)).join('')}</div>
     </section>`;
 }
 
 function sessionRow(plan, s) {
   return `<button type="button" class="list-item plan-sess${s.status === 'today' ? ' is-today' : ''}" data-action="plan-session" data-id="${esc(planIdAttr(plan, s))}">
-    <span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span>
-      <span class="plan-day">${esc(sessionDayText(s.date))}${s.targets?.run ? ` · ${esc(runKmText(s.targets.run.km))}` : ''}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
+    <span class="grow"><span class="plan-sess-title truncate">${sportTag(s)} ${esc(s.title)}</span>
+      <span class="plan-day">${esc(sessionDayText(s.date))}${sportLengthText(s.targets) ? ` · ${esc(sportLengthText(s.targets))}` : ''}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
     ${statusChip(s)}
   </button>`;
 }
@@ -127,8 +153,9 @@ function openPlanSchedule(planId) {
     <div class="sheet-body">
       <div class="sub" style="margin:4px 0 10px">${esc(planDatesText(plan.startDate, plan.endDate))} · ${esc(planStatusText(plan, pr, today))} · ${pr.completed} of ${plural(pr.total, 'session')} done</div>
       ${plan.kind === 'run' && plan.summary ? runAssessmentHtml(plan.summary, plan.summary.goal) : ''}
+      ${(plan.kind === 'swim' || plan.kind === 'bike') && plan.summary ? sportAssessmentHtml(plan.summary) : ''}
       ${plan.weeks.map((w) => `
-        <div class="section-title">Week ${esc(w.week)}${plan.kind === 'run' ? ` · ${esc(w.label || '')} · ${esc(runKmText(w.km || 0))}` : w.deload ? ' · Lighter week' : ''}</div>
+        <div class="section-title">Week ${esc(w.week)}${plan.kind !== 'strength' ? ` · ${esc(w.label || '')} · ${esc(weekVolumeText(plan, w))}` : w.deload ? ' · Lighter week' : ''}</div>
         <div class="card">${w.sessions.map((s) => sessionRow(plan, byKey.get(s.key))).join('')}</div>`).join('')}
       <p class="tpl-hint">Missed sessions stay where they were; nothing is moved for you. Open a session to start, skip or move it.</p>
       <div class="btn-row">
@@ -174,7 +201,7 @@ function openPlanSession(id) {
       <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${s.moved ? ` (moved from ${esc(sessionDayText(s.originalDate))})` : ''}</div>
       <div style="margin:8px 0">${statusChip(s)}${s.targets?.deload ? ' <span class="plan-flag">Lighter week</span>' : ''}</div>
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
-      ${s.targets?.run ? runDetailsHtml(s.targets.run) : `<div class="card review-list">
+      ${sessionSport(s) !== 'strength' ? sportDetailsHtml(s.targets) : `<div class="card review-list">
         ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div><div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div></div>`).join('')}
       </div>`}
       <div class="btn-col">${actions.join('')}</div>
@@ -278,7 +305,7 @@ function planResult(r, okText) {
 
 /** Plans actions. Returns true if handled. */
 function handlePlanAction(action, el) {
-  if (handleRunSetupAction(action, el)) return true;
+  if (handleRunSetupAction(action, el) || handleSportSetupAction(action, el)) return true;
   const id = el.dataset.id;
   switch (action) {
     case 'plan-setup': openProgramSetup(id); break;
@@ -586,3 +613,248 @@ function runWeekDoneKm(sessions) {
   }
   return m / 1000;
 }
+
+/** A week's planned volume in the sport's unit. */
+function weekVolumeText(plan, w) {
+  if (plan.kind === 'run') return runKmText(w.km || 0);
+  if (plan.kind === 'swim') return swimText(w.m || 0, plan.summary?.pool);
+  if (plan.kind === 'bike') return rideTime(w.min || 0);
+  return '';
+}
+/** Done vs planned this week: run km, swim distance, ride time (from the linked workouts). */
+function weekDoneText(plan, week, sessions) {
+  let m = 0, sec = 0;
+  for (const s of sessions) {
+    const w = s.workoutId && state.workouts.find((x) => x.id === s.workoutId);
+    if (w) w.entries.forEach((e) => completedSets(e).forEach((x) => { m += num(x.distance) || 0; sec += num(x.duration) || 0; }));
+  }
+  if (plan.kind === 'run') return `${runKmText(m / 1000)} of ${runKmText(week.km || 0)}`;
+  if (plan.kind === 'swim') return `${swimText(m, plan.summary?.pool)} of ${swimText(week.m || 0, plan.summary?.pool)}`;
+  if (plan.kind === 'bike') return `${rideTime(sec / 60)} of ${rideTime(week.min || 0)}`;
+  return '';
+}
+
+/** Assessment card for swim and cycling plans (level, paces/zones, readiness, assumptions, warnings, notes). */
+function sportAssessmentHtml(sum) {
+  const swim = sum.sport === 'swim';
+  const rows = [];
+  if (swim) {
+    rows.push(['Level', { starter: 'Starter: short swims with rest', developing: 'Developing', intermediate: 'Intermediate', advanced: 'Advanced' }[sum.level]]);
+    if (sum.base?.cont) rows.push(['Longest swim now', swimText(sum.base.cont, sum.pool)]);
+    if (sum.paces) ['easy', 'steady', 'threshold'].forEach((k) => rows.push([`${k[0].toUpperCase()}${k.slice(1)} pace`, swimPaceText(sum.paces[k], sum.pool.unit)]));
+  } else {
+    rows.push(['Riding now', `${rideTime(sum.base.weeklyMin)} a week, longest ${rideTime(sum.base.longestMin)}`]);
+    if (sum.ftp) rows.push(['FTP (measured)', `${sum.ftp} W`]);
+    if (sum.maxHr) rows.push(['Max heart rate', `${sum.maxHr} bpm`]);
+    if (sum.speed) rows.push(['Usual average speed', `${Math.round(sum.speed * (isImperial() ? 1 / 1.609344 : 1))} ${isImperial() ? 'mph' : 'km/h'}`]);
+    rows.push(['Where', { indoor: 'Indoor trainer', outdoor: 'Outdoors', both: 'Indoor and outdoor' }[sum.setting]]);
+  }
+  return `
+    <div class="section-title">Your starting point</div>
+    <div class="card card-pad run-fit">
+      ${(swim ? sum.paces : sum.ftp || sum.maxHr) ? '' : `<div><b>${swim ? 'Effort-based plan' : 'Time and effort plan'}</b></div>`}
+      <div class="pace-table">${rows.map(([l, v]) => `<div><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+    </div>
+    ${(sum.assumptions || []).length ? `<div class="card card-pad run-assumed" style="margin-top:10px"><b>Assumed (not from your answers)</b>${sum.assumptions.map((m) => `<div>• ${esc(m)}</div>`).join('')}</div>` : ''}
+    ${(sum.warnings || []).map((m) => `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(m)}</div></div>`).join('')}
+    ${(sum.notes || []).map((m) => `<div class="finish-note"><span aria-hidden="true">i</span><div>${esc(m)}</div></div>`).join('')}`;
+}
+
+/* ---------- Swimming and cycling plans: setup, review, start ---------- */
+
+const SPORT_GOALS = { swim: [['fitness', 'Fitness'], ['distance', 'A distance'], ['event', 'An event']], bike: [['fitness', 'Fitness'], ['distance', 'A distance'], ['event', 'An event']] };
+const SWIM_POOLS = [['25m', '25 m'], ['50m', '50 m'], ['25yd', '25 yd']];
+const SPORT_EXPERIENCE = {
+  swim: [['new', 'New', 'New to swimming laps, or back after a long break'], ['some', 'Some', 'Swimming laps regularly for under 2 years'], ['experienced', 'Experienced', '2+ years of regular lap swimming']],
+  bike: [['new', 'New', 'New to regular riding'], ['some', 'Some', 'Riding regularly for under 2 years'], ['experienced', 'Experienced', '2+ years of regular riding']]
+};
+const optInt = (v) => { const n = optNum(v); return n == null ? null : Math.round(n); };
+
+/** Swim answers from the form (distances typed in the pool's unit). */
+function swimAnswers(u) {
+  const [len, unit] = u.pool === '50m' ? [50, 'm'] : u.pool === '25yd' ? [25, 'yd'] : [25, 'm'];
+  const p = String(u.pace || '').trim();
+  return {
+    goal: u.goal, targetDist: u.goal === 'fitness' ? null : optNum(u.target), eventDate: u.goal === 'event' ? (u.eventDate || '') : null,
+    weeks: u.goal === 'event' ? null : +u.weeks, poolLen: len, poolUnit: unit,
+    contDist: optNum(u.cont), pace100: p ? (parseClock(p) || -1) : null,
+    sessionsPerWeek: u.sessions === '' || u.sessions == null ? null : +u.sessions, weeklyDist: optNum(u.weekly),
+    days: [...u.days].sort((a, b) => a - b), experience: u.experience || null, limitation: u.limitation || 'none',
+    ...(u.note && u.note.trim() ? { limitationNote: u.note.trim().slice(0, 300) } : {})
+  };
+}
+
+/** Ride answers from the form (hours and the selected distance unit → minutes and km). */
+function rideAnswers(u) {
+  const km = (v) => { const n = optNum(v); return n == null ? null : Math.round(n * distFactor() * 10) / 10; };
+  // Hours: "3", "2.5" or h:mm ("2:30" = 2 h 30 min) → minutes.
+  const mins = (v) => {
+    const s = String(v ?? '').trim();
+    if (!s) return null;
+    if (s.includes(':')) { const [h, m] = s.split(':'); const hh = Number(h), mm = Number(m); return Number.isFinite(hh) && Number.isFinite(mm) && mm >= 0 && mm < 60 ? Math.round(hh * 60 + mm) : null; }
+    const n = optNum(s);
+    return n == null ? null : Math.round(n * 60);
+  };
+  return {
+    goal: u.goal, targetKm: u.goal === 'fitness' ? null : km(u.target), eventDate: u.goal === 'event' ? (u.eventDate || '') : null,
+    weeks: u.goal === 'event' ? null : +u.weeks,
+    weeklyMin: mins(u.weekly), ridesPerWeek: u.rides === '' || u.rides == null ? null : +u.rides, longestMin: mins(u.longest),
+    speedKmh: optNum(u.speed) == null ? null : Math.round(optNum(u.speed) * distFactor() * 10) / 10,
+    ftp: optInt(u.ftp), maxHr: optInt(u.maxHr), setting: u.setting,
+    days: [...u.days].sort((a, b) => a - b), longDay: u.longDay === '' || u.longDay == null ? null : +u.longDay,
+    experience: u.experience || null, limitation: u.limitation || 'none',
+    ...(u.note && u.note.trim() ? { limitationNote: u.note.trim().slice(0, 300) } : {})
+  };
+}
+
+function openSportSetup(sport, keep) {
+  if (!keep || !ui.sportSetup || ui.sportSetup.sport !== sport) {
+    ui.sportSetup = sport === 'swim'
+      ? { sport, goal: 'fitness', target: '', eventDate: '', weeks: 8, start: todayKey(), pool: '25m', cont: '', pace: '', sessions: '', weekly: '', days: [1, 3, 5], experience: '', limitation: 'none', note: '' }
+      : { sport, goal: 'fitness', target: '', eventDate: '', weeks: 8, start: todayKey(), setting: 'outdoor', weekly: '', rides: '', longest: '', speed: '', ftp: '', maxHr: '', days: [1, 3, 6], longDay: '6', experience: '', limitation: 'none', note: '' };
+  }
+  const u = ui.sportSetup;
+  const swim = sport === 'swim';
+  const pu = swim ? (u.pool === '25yd' ? 'yd' : 'm') : (isImperial() ? 'mi' : 'km');
+  const seg = (key, opts) => `<div class="segmented" role="group">${opts.map(([v, l]) => `<button type="button" data-action="ss-set" data-k="${key}" data-v="${v}" class="${String(u[key]) === String(v) ? 'on' : ''}" aria-pressed="${String(u[key]) === String(v)}">${l}</button>`).join('')}</div>`;
+  const field = (label, html) => `<label class="ps-field"><span class="ps-label">${label}</span>${html}</label>`;
+  const input = (k, ph, mode = 'decimal') => `<input type="text" inputmode="${mode}" data-ss="${k}" value="${esc(u[k])}" placeholder="${esc(ph)}">`;
+  const exps = SPORT_EXPERIENCE[sport];
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Cancel</button>
+      <h2>${swim ? 'Swim Plan' : 'Cycling Plan'}</h2>
+      <span style="width:52px"></span>
+    </div>
+    <div class="sheet-body plan-setup run-setup">
+      <p class="plan-objective">${swim ? 'A few questions about your swimming now. The plan is built around how far you can swim without stopping; leave out what you don\'t know.' : 'A few questions about your riding now. Rides are planned by time and effort; power, heart rate and distance only appear if you give the numbers they need.'}</p>
+      <div class="ps-field"><span class="ps-label">Goal</span>${seg('goal', SPORT_GOALS[sport])}</div>
+      ${u.goal !== 'fitness' ? field(`${u.goal === 'event' ? 'Event' : 'Target'} distance (${pu})`, input('target', swim ? 'e.g. 1500' : 'e.g. 100')) : ''}
+      ${u.goal === 'event'
+        ? field('Event date', `<input type="date" data-ss="eventDate" value="${esc(u.eventDate)}" min="${esc(todayKey())}">`)
+        : field('Plan length', `<select data-ss="weeks">${(swim ? SWIM_WEEK_OPTIONS : RIDE_WEEK_OPTIONS).map((n) => `<option value="${n}"${+u.weeks === n ? ' selected' : ''}>${n} weeks</option>`).join('')}</select>`)}
+      ${field('Start date', `<input type="date" data-ss="start" value="${esc(u.start)}" min="${esc(todayKey())}">`)}
+      ${swim ? `
+        <div class="section-title">Your swimming now</div>
+        <div class="ps-field"><span class="ps-label">Pool</span>${seg('pool', SWIM_POOLS)}</div>
+        ${field(`Longest swim without stopping (${pu})`, input('cont', `e.g. ${u.pool === '50m' ? 100 : 50}`))}
+        <p class="tpl-hint" style="margin-top:4px">If you can't swim one length yet, a learn-to-swim class is the right start.</p>
+        ${field('Pace per 100 for that swim (optional)', input('pace', 'mm:ss, e.g. 2:10', 'numeric'))}
+        ${field('Swims per week', `<select data-ss="sessions"><option value="">Not sure</option>${[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}"${String(u.sessions) === String(n) ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}
+        ${field(`Distance per week (${pu}, optional)`, input('weekly', 'e.g. 2000'))}` : `
+        <div class="section-title">Your riding now</div>
+        <div class="ps-field"><span class="ps-label">Where you ride</span>${seg('setting', [['outdoor', 'Outdoors'], ['indoor', 'Indoor trainer'], ['both', 'Both']])}</div>
+        ${field('Riding time per week (hours)', input('weekly', 'e.g. 3 or 2:30'))}
+        ${field('Rides per week', `<select data-ss="rides"><option value="">Not sure</option>${[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}"${String(u.rides) === String(n) ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}
+        ${field('Longest ride, last month (hours)', input('longest', 'e.g. 1.5'))}
+        <div class="section-title">Measurements (optional)</div>
+        ${field(`Usual average speed outdoors (${isImperial() ? 'mph' : 'km/h'})`, input('speed', 'e.g. 25'))}
+        ${field('FTP, if measured (watts)', input('ftp', 'e.g. 220', 'numeric'))}
+        ${field('Maximum heart rate, if measured', input('maxHr', 'e.g. 185', 'numeric'))}
+        <p class="tpl-hint" style="margin-top:4px">Leave these empty if you don't know them: the plan won't guess power or heart-rate zones.</p>`}
+      <div class="ps-field"><span class="ps-label">Experience</span>${seg('experience', exps.map(([v, l]) => [v, l]))}
+        <div class="sub">${esc((exps.find(([v]) => v === u.experience) || [, , 'Choose the closest'])[2])}</div></div>
+      <div class="section-title">When you can ${swim ? 'swim' : 'ride'}</div>
+      <div class="ps-field"><span class="ps-label">Days (the others are rest days)</span>
+        <div class="day-picker" role="group" aria-label="${swim ? 'Swimming' : 'Riding'} days">
+          ${WEEKDAYS.map((d, i) => `<button type="button" data-action="ss-day" data-d="${i}" class="${u.days.includes(i) ? 'on' : ''}" aria-pressed="${u.days.includes(i)}">${d}</button>`).join('')}
+        </div><div class="sub">${u.days.length} days</div></div>
+      ${swim ? '' : field('Long ride on', `<select data-ss="longDay"><option value="">Any day</option>${u.days.slice().sort((a, b) => a - b).map((d) => `<option value="${d}"${String(u.longDay) === String(d) ? ' selected' : ''}>${WEEKDAYS[d]}</option>`).join('')}</select>`)}
+      <div class="section-title">Health</div>
+      <div class="ps-field"><span class="ps-label">Injuries or limitations</span>${seg('limitation', RUN_LIMITS)}</div>
+      ${u.limitation !== 'none' ? field('Details (optional)', `<input type="text" data-ss="note" value="${esc(u.note)}" placeholder="${swim ? 'e.g. sore shoulder' : 'e.g. sore knee'}">`) : ''}
+    </div>
+    <div class="sheet-foot"><button type="button" class="btn" data-action="ss-review">Review Plan</button></div>`);
+}
+
+const sportPlanName = (sport, a) => {
+  const swim = sport === 'swim';
+  const d = swim ? (a.targetDist ? ` · ${a.targetDist} ${a.poolUnit}` : '') : (a.targetKm ? ` · ${Math.round(a.targetKm * (isImperial() ? 1 / 1.609344 : 1))} ${isImperial() ? 'mi' : 'km'}` : '');
+  return `${swim ? 'Swim plan' : 'Cycling plan'}${a.goal === 'event' ? `${d} · event ${sessionDayText(a.eventDate)}` : d}`;
+};
+
+function openSportReview() {
+  const u = ui.sportSetup;
+  if (!u) return;
+  const swim = u.sport === 'swim';
+  const a = swim ? swimAnswers(u) : rideAnswers(u);
+  const as = swim ? assessSwim(a, u.start) : assessRide(a, u.start);
+  const head = `<div class="sheet-head"><button type="button" class="link" data-action="ss-back">Back</button><h2>Review Plan</h2><span style="width:52px"></span></div>`;
+  if (!as.ok) {
+    openSheet(`${head}<div class="sheet-body">
+      <div class="review-name">${swim ? 'Swim plan' : 'Cycling plan'}</div>
+      <div class="finish-note warn" role="alert"><span aria-hidden="true">!</span><div><b>Some answers need a look before a plan can be built:</b>${as.problems.map((m) => `<div>• ${esc(m)}</div>`).join('')}</div></div>
+      <div class="btn-row"><button type="button" class="btn secondary" data-action="ss-back">Back to Questions</button></div>
+    </div>`);
+    return;
+  }
+  const created = createPlan(PLAN_LIBRARY.get(swim ? 'swim' : 'bike'), a, as.schedule.start, { name: sportPlanName(u.sport, a) });
+  const kind = swim ? 'swim' : 'bike';
+  const can = canStartPlan(state, kind);
+  const p = created.ok ? created.plan : null;
+  const conflicts = p ? planConflicts({ ...state, plans: [...plansOf(state), p] }).filter((c) => c.sessions.some((x) => x.planId === p.id)) : [];
+  const sessions = p ? p.weeks.reduce((n, w) => n + w.sessions.length, 0) : 0;
+  openSheet(`${head}
+    <div class="sheet-body plan-review">
+      <div class="review-name">${esc(p ? p.name : sportPlanName(u.sport, a))}</div>
+      ${p ? `<div class="review-sub">${esc(planDatesText(p.startDate, p.endDate))} · ${plural(p.weeks.length, 'week')} · ${plural(sessions, swim ? 'swim' : 'ride')}</div>` : ''}
+      ${!can.ok ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(can.error)}</div></div>` : ''}
+      ${!created.ok ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(created.errors.join(' '))}</div></div>` : ''}
+      ${p ? sportAssessmentHtml(p.summary) : ''}
+      ${conflicts.length ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>Same day as your strength program:</b> ${esc(conflicts.map((c) => sessionDayText(c.date)).join(', '))}. You can move sessions later.</div></div>` : ''}
+      ${p ? `<div class="section-title">Weeks</div>
+        <div class="card run-weeks">${p.weeks.map((w) => `<div class="run-week-row"><span>Week ${w.week}</span><span class="grow">${esc(w.label)}</span><span>${esc(weekVolumeText(p, w))}</span><span class="sub">${w.sessions.length} ${swim ? 'swims' : 'rides'}</span></div>`).join('')}</div>
+        ${p.weeks.map((w) => `
+          <div class="section-title">Week ${w.week} · ${esc(w.label)} · ${esc(weekVolumeText(p, w))}</div>
+          <div class="card">${w.sessions.map((s) => `<div class="list-item plan-sess static"><span class="grow"><span class="plan-sess-title truncate">${sportTag(s)} ${esc(s.title)}</span><span class="plan-day">${esc(sessionDayText(s.date))}</span></span><span class="plan-meta">${esc(sportLengthText(s.targets))}</span></div>`).join('')}</div>`).join('')}` : ''}
+      <p class="tpl-hint">General guidance, not medical advice. The schedule is saved as it is now when you start; missed sessions are never moved for you.</p>
+    </div>
+    <div class="sheet-foot"><button type="button" class="btn begin-btn" data-action="ss-start"${p && can.ok ? '' : ' disabled'}>Start Plan</button></div>`);
+}
+
+/** Start a swim or cycling plan from answers. Returns { ok, plan?, error? }. */
+function startSportPlan(sport, a, start, st = state, today = todayKey()) {
+  const swim = sport === 'swim';
+  const as = swim ? assessSwim(a, start, today) : assessRide(a, start, today);
+  if (!as.ok) return { ok: false, error: as.problems.join(' ') };
+  const created = createPlan(PLAN_LIBRARY.get(swim ? 'swim' : 'bike'), a, as.schedule.start, { name: sportPlanName(sport, a) });
+  if (!created.ok) return { ok: false, error: created.errors.join(' ') };
+  resolveProgramExercises(created.plan, st);
+  const r = addPlan(st, created.plan, today);
+  return r.ok ? { ok: true, plan: created.plan, conflicts: r.conflicts } : r;
+}
+
+function handleSportSetupAction(action, el) {
+  const u = ui.sportSetup;
+  switch (action) {
+    case 'swim-setup': openSportSetup('swim'); break;
+    case 'ride-setup': openSportSetup('bike'); break;
+    case 'ss-set': u[el.dataset.k] = el.dataset.v; openSportSetup(u.sport, true); break;
+    case 'ss-day': {
+      const d = +el.dataset.d;
+      u.days = u.days.includes(d) ? u.days.filter((x) => x !== d) : [...u.days, d];
+      if (u.longDay !== '' && u.longDay != null && !u.days.includes(+u.longDay)) u.longDay = '';
+      openSportSetup(u.sport, true);
+      break;
+    }
+    case 'ss-review': openSportReview(); break;
+    case 'ss-back': openSportSetup(u.sport, true); break;
+    case 'ss-start': {
+      const r = startSportPlan(u.sport, u.sport === 'swim' ? swimAnswers(u) : rideAnswers(u), u.start);
+      if (!r.ok) { alert(r.error); break; }
+      save();
+      ui.sportSetup = null;
+      closeSheet();
+      ui.tab = 'plans';
+      render();
+      window.scrollTo(0, 0);
+      toast(`${r.plan.name} started`);
+      break;
+    }
+    default: return false;
+  }
+  return true;
+}
+
+document.addEventListener('input', (ev) => { const t = ev.target; if (ui.sportSetup && t.dataset?.ss) ui.sportSetup[t.dataset.ss] = t.value; });
+document.addEventListener('change', (ev) => { const t = ev.target; if (ui.sportSetup && t.dataset?.ss) ui.sportSetup[t.dataset.ss] = t.value; });

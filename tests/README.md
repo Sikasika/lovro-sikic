@@ -27,6 +27,7 @@ Screenshots, generated backup files and `summary.txt` go to `tests/out/` (git-ig
 | plan-test | plan core: snapshots, session statuses, no automatic shifting, links, one strength + one sport plan, backup/restore of plans |
 | program-test | strength programs: schedules (all setup combinations), setup → review → start, snapshot, planned sessions in the logger, swaps, planned vs actual, rep-range recommendations, statuses, conflicts, backup, stop |
 | run-test | running plans: Riegel estimates and paces, missing/inconsistent answers, goal checks, 1,440 generated plans checked against the progression, recovery, long-run, intensity, taper and race-week rules, plans for different fitness levels, setup → review → start, snapshot, logging a run, planned vs actual, conflicts with a strength program, backup, miles |
+| sport-test | swimming and cycling plans: setup validation, ~2,400 swim and ~1,900 cycling plans checked against the ability, progression, recovery, structure, taper, injury and readiness rules, plans for different starting points, setup → review → start, logging, planned vs actual, conflicts, one sport plan at a time, backup |
 | format-test | backup format 1 (no plans) vs 2 (plans): export, restore, refusals that change nothing, and the real v21 code refusing a format-2 file |
 | prog-test | progression trend and next-weight recommendation |
 | bw-test, bwi-test | body weight (Progress, Statistics, Insights) incl. backup rules |

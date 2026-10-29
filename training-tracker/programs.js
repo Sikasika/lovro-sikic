@@ -165,6 +165,8 @@ function resolveProgramExercises(plan, st) {
   (st.exercises || []).forEach((e) => { const k = String(e.name).trim().toLowerCase(); if (!byName.has(k) || (byName.get(k).archived && !e.archived)) byName.set(k, e); });
   for (const s of planSessions(plan)) {
     if (s.targets?.run && !s.targets.run.exerciseId) s.targets.run.exerciseId = runExerciseId(st);
+    if (s.targets?.swim && !s.targets.swim.exerciseId) s.targets.swim.exerciseId = sportExerciseId(st, 'Swimming');
+    if (s.targets?.ride && !s.targets.ride.exerciseId) s.targets.ride.exerciseId = sportExerciseId(st, 'Cycling');
     for (const x of s.targets?.exercises || []) {
       if (x.exerciseId) continue;
       const k = x.name.trim().toLowerCase();
@@ -216,6 +218,7 @@ function startProgram(p, answers, startDate, st = state, today = todayKey()) {
  */
 function plannedWorkout(plan, session) {
   if (session.targets?.run) return plannedRunWorkout(plan, session);
+  if (session.targets?.swim || session.targets?.ride) return plannedSportWorkout(plan, session);
   const items = (session.targets?.exercises || []).filter((x) => x.exerciseId);
   return {
     id: uid(),
@@ -259,13 +262,56 @@ function plannedRunWorkout(plan, session) {
   };
 }
 
-/** The library's Running exercise (added if missing). */
-function runExerciseId(st) {
-  const ex = st.exercises.find((e) => !e.archived && String(e.name).trim().toLowerCase() === 'running') || st.exercises.find((e) => String(e.name).trim().toLowerCase() === 'running');
+/** The library's exercise for a sport ('Running', 'Swimming', 'Cycling'), added if missing. */
+function sportExerciseId(st, name) {
+  const k = name.toLowerCase();
+  const ex = st.exercises.find((e) => !e.archived && String(e.name).trim().toLowerCase() === k) || st.exercises.find((e) => String(e.name).trim().toLowerCase() === k);
   if (ex) return ex.id;
-  const created = { id: uid(), name: 'Running', category: 'Cardio' };
+  const created = { id: uid(), name, category: 'Cardio' };
   st.exercises.push(created);
   return created.id;
+}
+const runExerciseId = (st) => sportExerciseId(st, 'Running');
+
+/**
+ * A swim or ride session in the logger: one Swimming / Cycling entry whose set carries the
+ * planned distance (swim) or time (ride, plus distance when a usual speed was given) as its
+ * target, and the session's targets in workout.planned for the comparison.
+ */
+function plannedSportWorkout(plan, session) {
+  const swim = session.targets.swim, ride = session.targets.ride;
+  const t = swim || ride;
+  const exId = t.exerciseId || sportExerciseId(state, swim ? 'Swimming' : 'Cycling');
+  const durationSec = Math.round((swim ? swim.estMin : ride.min) * 60);
+  const distanceM = swim ? swim.totalM : ride.kmRange ? Math.round(((ride.kmRange[0] + ride.kmRange[1]) / 2) * 1000) : ride.eventKm ? Math.round(ride.eventKm * 1000) : null;
+  const item = { exerciseId: exId, [swim ? 'swim' : 'ride']: true, type: session.type, durationSec, ...(distanceM ? { distanceM } : {}) };
+  return {
+    id: uid(), name: session.title, templateId: null, start: new Date().toISOString(), notes: '',
+    plan: { planId: plan.id, sessionKey: session.key },
+    planned: {
+      planName: plan.name, title: session.title, week: session.week ?? null, date: session.date, kind: swim ? 'swim' : 'ride',
+      [swim ? 'swim' : 'ride']: (({ exerciseId, ...rest }) => JSON.parse(JSON.stringify(rest)))(t),
+      items: [item]
+    },
+    entries: [{ exerciseId: exId, sets: [{ weight: '', reps: '', target: { ...(durationSec ? { duration: durationSec } : {}), ...(distanceM ? { distance: distanceM } : {}) }, done: false }] }]
+  };
+}
+
+/** Planned vs actual for a swim (distance first) or a ride (time first). */
+function plannedVsActualSport(w) {
+  const it = w.planned.items[0];
+  const sets = w.entries.filter((e) => e.exerciseId === it.exerciseId).flatMap((e) => completedSets(e));
+  const m = sets.reduce((n, s) => n + (num(s.distance) || 0), 0);
+  const sec = sets.reduce((n, s) => n + (num(s.duration) || 0), 0);
+  const swim = w.planned.kind === 'swim';
+  const ratio = swim ? (it.distanceM ? m / it.distanceM : 0) : (it.durationSec ? sec / it.durationSec : 0) || (it.distanceM && m ? m / it.distanceM : 0);
+  return {
+    sport: swim ? 'swim' : 'ride', plannedM: it.distanceM || null, plannedSec: it.durationSec || null, doneM: m, doneSec: sec, type: it.type,
+    status: !sets.length ? 'skipped' : ratio >= 0.9 ? 'done' : 'partial',
+    pace100: swim && m > 0 && sec > 0 ? sec / (m / 100) : null,
+    speed: !swim && m > 0 && sec > 0 ? (m / 1000) / (sec / 3600) : null,
+    others: w.entries.filter((e) => e.exerciseId !== it.exerciseId && completedSets(e).length).map((e) => e.exerciseId)
+  };
 }
 
 /** Planned vs actual for a run: distance (and time) against the plan; pace only for easy and long runs. */
@@ -293,6 +339,7 @@ function plannedVsActualRun(w) {
 function plannedVsActual(w) {
   if (!w?.planned || !Array.isArray(w.planned.items)) return null;
   if (w.planned.kind === 'run') return plannedVsActualRun(w);
+  if (w.planned.kind === 'swim' || w.planned.kind === 'ride') return plannedVsActualSport(w);
   const used = new Set();
   const rows = w.planned.items.map((it) => {
     const idx = w.entries.findIndex((e, i) => !used.has(i) && (e.swappedFrom === it.exerciseId || (e.exerciseId === it.exerciseId && e.swappedFrom == null)));

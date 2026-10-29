@@ -96,9 +96,9 @@ function homePlannedCard(x, more = []) {
   const n = s.targets?.exercises?.length || 0;
   return `
     <section class="start-hero home-today home-plan">
-      <div class="home-plan-tag"><span class="plan-tag">Plan</span> ${esc(plan.name)} · Week ${esc(s.week)} of ${pr.weeks}</div>
+      <div class="home-plan-tag"><span class="plan-tag">Plan</span> ${sessionSport(s) !== 'strength' ? `${sportTag(s)} ` : ''}${esc(plan.name)} · Week ${esc(s.week)} of ${pr.weeks}</div>
       <h2 class="hero-title">Today: ${esc(s.title)}</h2>
-      <p class="hero-sub">${s.targets?.run ? `${esc(runKmText(s.targets.run.km))} · about ${s.targets.run.estMin} min` : `${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}`}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
+      <p class="hero-sub">${s.targets?.run ? `${esc(runKmText(s.targets.run.km))} · about ${s.targets.run.estMin} min` : s.targets?.swim || s.targets?.ride ? esc(sportLengthText(s.targets)) : `${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}`}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
       <button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">Start ${esc(s.title)}</button>
       <div class="home-plan-links">
         <button type="button" class="link small" data-action="plan-session" data-id="${esc(`${plan.id}|${s.key}`)}">Skip or move</button>

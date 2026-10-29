@@ -235,7 +235,8 @@ function validateBackup(parsed) {
     if (w.end != null && w.end !== '' && !validDate(w.end)) errors.push(`${label} has an invalid end time.`);
     if (w.planned != null && !(isObj(w.planned) && typeof w.planned.title === 'string' && typeof w.planned.planName === 'string' && (w.planned.date == null || isDateKey(w.planned.date)) &&
         Array.isArray(w.planned.items) && w.planned.items.every((x) => validPlannedRunItem(x) || (validTarget(x) && validId(x.exerciseId))) &&
-        (w.planned.run == null || validRunTarget(w.planned.run)))) errors.push(`${label} has an invalid planned session record.`);
+        (w.planned.run == null || validRunTarget(w.planned.run)) && (w.planned.swim == null || validSwimTarget(w.planned.swim)) &&
+        (w.planned.ride == null || validRideTarget(w.planned.ride)))) errors.push(`${label} has an invalid planned session record.`);
     checkEntries(w.entries, label, false);
   };
   src.workouts.forEach((w, i) => checkWorkout(w, `Workout ${i + 1}`, true));

@@ -1215,7 +1215,8 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .run-fit { font-size: 15px; line-height: 1.45; }
 .pace-table { margin-top: 8px; border-top: 0.5px solid var(--separator); }
 .pace-table div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 0.5px solid var(--separator); font-size: 15px; }
-.pace-table b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pace-table b { font-variant-numeric: tabular-nums; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.pace-table span { flex: none; max-width: 55%; }
 .goal-check { font-size: 15px; line-height: 1.45; border-left: 4px solid var(--muted); }
 .goal-check.goal-realistic, .goal-check.goal-reached { border-left-color: var(--success); }
 .goal-check.goal-ambitious { border-left-color: var(--accent); }
@@ -1230,3 +1231,14 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .run-setup input[type="text"] { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 10px; border: 0; background: var(--card); color: var(--text); }
 .home-plan-more { margin-top: 8px; text-align: center; font-size: 14px; color: rgba(242, 246, 252, 0.78); }
 .home-plan-more .link { color: #fff; }
+
+/* ---------- Sport tags (run / swim / ride / strength) ---------- */
+.sport-tag { display: inline-block; padding: 0 6px; border-radius: 5px; font-size: 11px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; vertical-align: 1px; color: #fff; }
+.sport-tag.sport-run { background: #e8590c; }
+.sport-tag.sport-swim { background: #1c7ed6; }
+.sport-tag.sport-ride { background: #2b8a3e; }
+.sport-tag.sport-strength { background: var(--muted); }
+:root[data-theme="dark"] .sport-tag.sport-swim { background: #339af0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sport-tag.sport-swim { background: #339af0; } }
+.plan-banner.sport-swim { background: rgba(28, 126, 214, 0.12); }
+.plan-banner.sport-ride { background: rgba(43, 138, 62, 0.12); }
