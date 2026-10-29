@@ -139,7 +139,8 @@ function save() {
   }
 }
 
-const ui = { pendingRestore: null, tab: 'workout', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null,
+// Opens on Home; straight into the logger when a workout is in progress.
+const ui = { pendingRestore: null, tab: state.active ? 'workout' : 'home', progressView: 'progress', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null,
   review: null, savedId: null, wkScroll: 0, tapGuardUntil: 0, // Workout tab state: see workout.js
   bw: { range: '3m', back: 'card', editId: null } }; // Body weight: see bodyweight.js
 
@@ -229,11 +230,17 @@ function haptic() {
 
 /* ---------- Rendering ---------- */
 
-const TITLES = { workout: 'Workout', history: 'History', progress: 'Progress', insights: 'Insights', statistics: 'Statistics', settings: 'Settings' };
+const TITLES = { home: 'Today', workout: 'Train', plans: 'Plans', history: 'History', progress: 'Progress', insights: 'Progress', statistics: 'Progress', body: 'Progress', settings: 'Settings' };
+/** Which tab bar button is highlighted for each screen (Progress sections and Settings live under a tab). */
+const TAB_OF = { insights: 'progress', statistics: 'progress', body: 'progress', settings: 'home' };
 
 function render() {
-  $('#title').textContent = TITLES[ui.tab];
-  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === ui.tab));
+  $('#title').textContent = TITLES[ui.tab] || '';
+  const tabBtn = TAB_OF[ui.tab] || ui.tab;
+  document.querySelectorAll('.tabbar button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === tabBtn);
+    if (b.dataset.tab === tabBtn) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   const view = $('#view');
   const action = $('#topbar-action');
   action.innerHTML = '';
@@ -242,11 +249,16 @@ function render() {
     view.innerHTML = state.active ? renderActive(action) : renderStart();
     if (state.active) syncWorkoutStatus();
   }
+  if (ui.tab === 'home') view.innerHTML = renderHome(action);
+  if (ui.tab === 'plans') view.innerHTML = renderPlans();
   if (ui.tab === 'history') view.innerHTML = renderHistory();
-  if (ui.tab === 'progress') view.innerHTML = renderProgress();
-  if (ui.tab === 'insights') view.innerHTML = renderInsights();
-  if (ui.tab === 'statistics') view.innerHTML = renderStatistics();
-  if (ui.tab === 'settings') view.innerHTML = renderSettings();
+  // Progress sections (home.js): Overview, Insights, Statistics, Body weight.
+  if (isProgressView(ui.tab)) {
+    ui.progressView = ui.tab;
+    const body = { progress: renderProgress, insights: renderInsights, statistics: renderStatistics, body: renderBodyView }[ui.tab]();
+    view.innerHTML = progressSubnav(ui.tab) + body;
+  }
+  if (ui.tab === 'settings') view.innerHTML = `<button type="button" class="link back-link" data-tab="home">‹ Today</button>${renderSettings()}`;
   updateLiveBar();
 }
 
@@ -978,7 +990,7 @@ const RECORD_LABELS = { weight: 'Heaviest', e1rm: 'Est. 1RM', reps: 'Most reps',
 function renderProgress() {
   const { items, today } = completedWorkouts();
   if (!items.length) {
-    return `${renderWeightCard()}<div class="empty" style="padding-top:28px"><div class="big">📈</div>Finish a workout to see your workout progress.</div>`;
+    return `<div class="empty" style="padding-top:28px"><div class="big">📈</div>Finish a workout to see your workout progress.<br>Weigh-ins are under Body.</div>`;
   }
   const thisWeekStart = startOfWeek(today);
   const lastWeekStart = sAddDays(thisWeekStart, -7);
@@ -996,10 +1008,7 @@ function renderProgress() {
   if (!ui.progressExercise || !used.some((e) => e.id === ui.progressExercise)) ui.progressExercise = used[0]?.id ?? null;
 
   return `
-    ${renderWeightCard()}
-
-    <div class="section-title">Workouts</div>
-    <div class="stats">
+    <div class="stats" style="margin-top:12px">
       <div class="stat"><div class="num">${items.length}</div><div class="lbl">Total workouts</div></div>
       <div class="stat"><div class="num">${weekStreak(items, today)}<small> wk</small></div><div class="lbl">Week streak</div><div class="stat-hint">Weeks in a row</div></div>
       <div class="stat"><div class="num">${dayStreak(items, today)}<small> d</small></div><div class="lbl">Day streak</div><div class="stat-hint">Days in a row</div></div>
@@ -1427,11 +1436,13 @@ function saveExerciseDraft() {
 /* ---------- Events ---------- */
 
 document.addEventListener('click', (ev) => {
-  const tab = ev.target.closest('.tabbar button');
-  if (tab) {
+  // Tab bar buttons and in-page links to a screen ([data-tab]). The Progress tab button
+  // returns to the last Progress section viewed.
+  const tab = ev.target.closest('[data-tab]');
+  if (tab && !(performance.now() < ui.tapGuardUntil && tab.closest('#view'))) {
     // The live workout keeps its scroll position while you look at other tabs.
     if (ui.tab === 'workout' && state.active) ui.wkScroll = window.scrollY;
-    ui.tab = tab.dataset.tab;
+    ui.tab = tab.closest('.tabbar') && tab.dataset.tab === 'progress' ? ui.progressView : tab.dataset.tab;
     closeSheet();
     render();
     window.scrollTo(0, ui.tab === 'workout' && state.active ? ui.wkScroll : 0);
@@ -1558,6 +1569,7 @@ document.addEventListener('click', (ev) => {
       if (confirm('Delete this workout?')) { state.workouts = state.workouts.filter((w) => w.id !== id); save(); closeSheet(); render(); }
       break;
     case 'close-sheet': closeSheet(); break;
+    case 'open-settings': ui.tab = 'settings'; closeSheet(); render(); window.scrollTo(0, 0); break;
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
     case 'theme': state.settings.theme = el.dataset.v; save(); applyTheme(); render(); break;
     case 'export': exportData(); break;
@@ -1682,5 +1694,8 @@ function showUpdateNotice() {
   document.body.appendChild(el);
 }
 
-render();
-if (loadWarning) setTimeout(() => alert(loadWarning), 300);
+// First render once every script has loaded (Home uses Statistics and Insights helpers).
+document.addEventListener('DOMContentLoaded', () => {
+  render();
+  if (loadWarning) setTimeout(() => alert(loadWarning), 300);
+});

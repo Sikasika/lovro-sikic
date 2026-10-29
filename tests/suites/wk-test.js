@@ -1,6 +1,7 @@
 // Workout tab redesign: flow, set completion reliability, finishing, compatibility.
 // Usage: node wk-test.js <light|dark> <width>
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const scheme = process.argv[2] || 'light', width = +(process.argv[3] || 390);
 const KEY = 'training-tracker.v1';
 const seed = require('./wk-seed.js');
@@ -19,6 +20,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   page.on('dialog', (d) => { dialogs.push(d.message()); answer ? d.accept() : d.dismiss(); });
   await page.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k, v); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(seed)]);
   await page.goto('http://localhost:3000/training-tracker/');
+  await go(page, 'workout'); // the app opens on Today
   const st = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const wait = (ms = 250) => page.waitForTimeout(ms);
   const settle = () => wait(500);
@@ -78,7 +80,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
 
   /* 8. Duplicate sessions are impossible */
   const id0 = s.active.id;
-  await page.click('[data-tab=history]'); await wait();
+  await go(page, 'history'); await wait();
   check('11 live bar on other tabs', `${await page.isVisible('#live-bar')}|${await page.innerText('#lb-name')}`, 'true|Push Day');
   await page.click('[data-action=open-workout][data-id=w3]'); await wait();
   await page.click('#sheet [data-action=repeat]'); await settle();
@@ -199,12 +201,12 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   /* 11. Navigate away and back */
   await page.evaluate(() => window.scrollTo(0, 500)); await wait();
   const y0 = await page.evaluate(() => window.scrollY);
-  await page.click('[data-tab=statistics]'); await wait(1200);
+  await go(page, 'statistics'); await wait(1200);
   check('11 live bar shows clock', /\d+:\d\d/.test(await page.innerText('#lb-time')), true);
   await page.click('#live-bar'); await wait();
   check('11 Continue returns to the live workout at the same place', `${await page.isVisible('#session-bar')}|${Math.abs((await page.evaluate(() => window.scrollY)) - y0) < 5}`, 'true|true');
   check('11 values and ticks intact', `${await page.inputValue(f(0, 3, 'weight'))}|${await consistent(0, 3, true)}|${await consistent(3, 0, true)}`, '82.5|true|true');
-  await page.click('[data-tab=progress]'); await wait(); await page.click('[data-tab=workout]'); await wait();
+  await go(page, 'progress'); await wait(); await go(page, 'workout'); await wait();
   check('11 tab bar return also restores position', Math.abs((await page.evaluate(() => window.scrollY)) - y0) < 5, true);
   await page.reload(); await wait(600);
   check('11 survives an app restart', `${(await st()).active.id === id0}|${await consistent(0, 3, true)}`, 'true|true');
@@ -236,17 +238,17 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   const det = (await page.innerText('#sheet')).replace(/\s+/g, ' ');
   check('12 History detail', det.includes('82.5 kg × 3') && det.includes('4.20 km · 21:30'), true);
   await page.click('#sheet [data-action=close-sheet]'); await wait();
-  await page.click('[data-tab=history]'); await wait();
+  await go(page, 'history'); await wait();
   check('12 History list first', await page.$eval('[data-action=open-workout]', (b) => b.dataset.id), id0);
-  await page.click('[data-tab=progress]'); await wait();
+  await go(page, 'progress'); await wait();
   check('12 Progress counts it', (await page.innerText('#view')).replace(/\s+/g, ' ').includes('4 Total workouts'), true);
-  await page.click('[data-tab=insights]'); await wait();
+  await go(page, 'insights'); await wait();
   check('12 Insights renders', (await page.innerText('#view')).length > 50, true);
-  await page.click('[data-tab=statistics]'); await wait();
+  await go(page, 'statistics'); await wait();
   check('12 Statistics renders', (await page.innerText('#view')).length > 50, true);
 
   /* 12c. Nothing ticked: Keep Training keeps data; Tick & Save includes values */
-  await page.click('[data-tab=workout]'); await wait();
+  await go(page, 'workout'); await wait();
   await page.click('#view [data-action=start-flow]'); await page.click('#sheet [data-action=start-empty]'); await settle();
   check('3 empty workout: empty state + Add Exercise', `${await page.isVisible('.empty-session')}|${await page.isVisible('#view [data-action=add-exercise]')}`, 'true|true');
   await addEx('bench');

@@ -1,5 +1,6 @@
 // Progression: trend vs last time + next-weight recommendation. Usage: node prog-test.js <light|dark> <width>
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const scheme = process.argv[2] || 'light', width = +(process.argv[3] || 390);
 const KEY = 'training-tracker.v1';
 const results = [];
@@ -24,7 +25,7 @@ const baseState = (workouts, extra = {}) => ({ schemaVersion: 2, cardioExercises
   const load = async (data, tab) => {
     await page.evaluate(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [KEY, data]);
     await page.reload(); await page.waitForTimeout(300);
-    if (tab) { await page.click(`[data-tab=${tab}]`); await page.waitForTimeout(150); }
+    if (tab) { await go(page, tab); await page.waitForTimeout(150); }
   };
   const st = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
 
@@ -147,7 +148,7 @@ const baseState = (workouts, extra = {}) => ({ schemaVersion: 2, cardioExercises
   check('D ticking still works (data = screen)', await page.evaluate(() => state.active.entries[1].sets[0].done && document.querySelector('.set-row[data-entry="1"][data-set="0"]').classList.contains('done')), true);
 
   /* E. Weight step setting, units, backup */
-  await page.click('[data-tab=settings]'); await page.waitForTimeout(150);
+  await go(page, 'settings'); await page.waitForTimeout(150);
   check('E setting shows default 2.5 kg', await page.inputValue('#weight-step'), '2.5');
   await page.fill('#weight-step', '1.25'); await page.waitForTimeout(100);
   check('E step saved (kg)', (await st()).settings.weightStepKg, 1.25);

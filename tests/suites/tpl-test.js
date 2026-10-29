@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const KEY = 'training-tracker.v1';
 const exercises = [{ id: 'bench', name: 'Bench Press', category: 'Chest' }, { id: 'squat', name: 'Squat', category: 'Legs' },
@@ -26,6 +27,7 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   page.on('dialog', (d) => { dialogs.push(d.message()); dialogAnswer ? d.accept() : d.dismiss(); });
   await page.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k, v); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(seed)]);
   await page.goto('http://localhost:3000/training-tracker/');
+  await go(page, 'workout'); // the app opens on Today
   const stored = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const wait = (ms = 350) => page.waitForTimeout(ms);
   const tfield = (e, s, f) => `#sheet input[data-tfield=${f}][data-entry="${e}"][data-set="${s}"]`;
@@ -109,8 +111,8 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   check('finished workout linked to template', fin.templateId, 'old1');
 
   /* Units: targets are stored in kg and shown in the selected unit */
-  await page.click('[data-tab=settings]'); await page.click('[data-action=unit][data-unit=lb]');
-  await page.click('[data-tab=workout]');
+  await go(page, 'settings'); await page.click('[data-action=unit][data-unit=lb]');
+  await go(page, 'workout');
   await page.click('#view [data-action=edit-template][data-id=old1]'); await wait();
   check('editor shows targets in lb', await page.inputValue(tfield(0, 0, 'weight')), '132.28');
   check('column says lb', (await page.textContent('#sheet .tpl-sets th:nth-child(2)')).trim(), 'Target lb');
@@ -120,7 +122,7 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   await F.startTemplate('#view [data-action=review][data-id=old1]');
   check('workout shows 135 lb plan', await page.getAttribute(wfield(0, 0, 'weight'), 'placeholder'), '135');
   await page.click('[data-action=discard]').then(() => page.waitForTimeout(500));
-  await page.click('[data-tab=settings]'); await page.click('[data-action=unit][data-unit=kg]'); await page.click('[data-tab=workout]');
+  await go(page, 'settings'); await page.click('[data-action=unit][data-unit=kg]'); await go(page, 'workout');
 
   /* Cancel: unsaved changes ask first; unchanged editor closes silently */
   const n0 = dialogs.length;
@@ -153,12 +155,12 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   check('save from workout keeps targets', JSON.stringify((await stored()).templates.find((x) => x.name === 'Arms').entries[0].sets), JSON.stringify([{ weight: 30, reps: 12 }, { weight: '', reps: '' }, { weight: '', reps: '' }]));
   await page.click('[data-action=discard]').then(() => page.waitForTimeout(500));
   // Save from history
-  await page.click('[data-tab=history]');
+  await go(page, 'history');
   await page.click('[data-action=open-workout][data-id=w1]'); await wait();
   await page.click('[data-action=save-history-template]');
   await page.click('#sheet [data-action=close-sheet]');
   check('save from history keeps sets', JSON.stringify((await stored()).templates.find((x) => x.name === 'Legs').entries[0].sets), JSON.stringify([{ weight: 100, reps: 5 }, { weight: 105, reps: 3 }]));
-  await page.click('[data-tab=workout]'); await wait(2300);
+  await go(page, 'workout'); await wait(2300);
   await page.screenshot({ path: `${SP}/tpl-${scheme}-home.png` });
   const id = (await stored()).templates.find((x) => x.name === 'Pull Day').id;
   await page.click(`#view [data-action=edit-template][data-id="${id}"]`); await wait();

@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], width = +process.argv[3], scheme = process.argv[4] || 'light';
 const KEY = 'training-tracker.v1';
 const L = (s) => new Date(s).toISOString();
@@ -56,9 +57,10 @@ const data = {
     });
     r.forEach((x) => problems.push(`${label}: ${x}`));
   }
-  const tab = async (t) => { await page.click(`[data-tab=${t}]`); await wait(); };
+  const tab = async (t) => { await go(page, t); await wait(); };
   const close = async () => { const b = await page.$('#sheet:not(.hidden) .sheet-head .link:last-child'); if (b) await b.click(); await wait(); };
 
+  await inspect('Today'); await tab('plans'); await inspect('Plans');
   await tab('workout'); await inspect('Workout start');
   await page.click('[data-action=start-flow]'); await wait(); await inspect('Start chooser');
   await page.click('#sheet [data-action=close-sheet]'); await wait();
@@ -69,6 +71,7 @@ const data = {
   await page.click('[data-action=back-to-template]'); await wait();
   await page.click('[data-action=cancel-template]'); await wait();
   await page.click('#view [data-action=review][data-kind=template]'); await wait(); await inspect('Template review'); await F.begin(); await inspect('Live workout from template');
+  await tab('home'); await inspect('Today with a workout in progress'); await page.click('[data-action=continue-workout]'); await wait();
   await page.click('[data-action=entry-menu][data-entry="0"]'); await wait(); await inspect('Exercise menu'); await close();
   await page.click('.set-label[data-entry="0"][data-set="1"]'); await wait(); await inspect('Set menu');
   await page.click('[data-action=set-menu-back]'); await wait();
@@ -88,12 +91,14 @@ const data = {
   await page.click('[data-action=edit-workout]'); await wait(); await inspect('Workout editor');
   await page.click('[data-action=cancel-wedit]'); await wait(); await page.click('#sheet .sheet-head [data-action=close-sheet]'); await wait();
   await tab('progress'); await inspect('Progress');
+  await tab('body'); await inspect('Body weight');
   await page.click('[data-action=bw-list]'); await wait(); await inspect('Weigh-in list');
   await page.click('#sheet [data-action=bw-edit]'); await wait(); await inspect('Weigh-in editor');
   await page.click('[data-action=bw-cancel]'); await wait(); await page.click('#sheet [data-action=close-sheet]'); await wait();
   await page.click('[data-action=bw-goal]'); await wait(); await inspect('Target editor (none yet)');
   await page.fill('#bw-target', '95'); await page.click('[data-action=bw-goal-save]'); await wait(); await inspect('Progress with target');
   await page.click('[data-action=bw-add]'); await wait(); await inspect('Add weigh-in'); await page.click('[data-action=bw-cancel]'); await wait();
+  await tab('progress');
   for (const ex of ['bench', 'run', 'padel']) { await page.selectOption('#progress-exercise', ex); await wait(); await inspect(`Progress ${ex}`); }
   await tab('insights'); await inspect('Insights week');
   await page.click('[data-iaction=week][data-dir="-1"]'); await wait(); await inspect('Insights current week');

@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const KEY = 'training-tracker.v1';
 const L = (s) => new Date(s).toISOString();
@@ -60,14 +61,14 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
 
   /* Empty app */
   let page = await mk(null);
-  await page.click('[data-tab=insights]'); await wait(page);
+  await go(page, 'insights'); await wait(page);
   check('empty: explains what to record', (await text(page)).includes('log workouts in at least two different weeks'), true);
   check('empty: no errors', page.errors.length, 0);
   await page.context().close();
 
   page = await mk(seed);
-  await page.click('[data-tab=insights]'); await wait(page);
-  check('tab title', await page.innerText('#title'), 'Insights');
+  await go(page, 'insights'); await wait(page);
+  check('tab title', await page.innerText('#title'), 'Progress');
 
   /* Insight cards: last complete week (19–25 Oct) vs 12–18 Oct */
   const cards = await page.$$eval('.insight-card', (c) => c.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
@@ -161,7 +162,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.screenshot({ path: `${SP}/ins-${scheme}-balance.png`, fullPage: true });
 
   /* Editing and deleting update Insights */
-  await page.click('[data-tab=history]'); await wait(page);
+  await go(page, 'history'); await wait(page);
   await page.click('[data-action=open-workout][data-id="sq3"]'); await wait(page);
   await page.click('[data-action=delete-workout]'); await wait(page);
   await page.click('[data-action=open-workout][data-id="b7"]'); await wait(page);
@@ -170,7 +171,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.fill('#sheet input[data-wfield=reps][data-entry="0"][data-set="0"]', '5');
   await page.click('[data-action=save-wedit]'); await wait(page);
   await page.click('#sheet [data-action=close-sheet]');
-  await page.click('[data-tab=insights]'); await view(page, 'overview');
+  await go(page, 'insights'); await view(page, 'overview');
   const cards2 = await page.$$eval('.insight-card', (c) => c.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
   check('deleted: frequency now 4 vs 4 -> no frequency card', cards2.some((x) => x.includes('Training frequency')), false);
   check('edited+deleted: volume 850 + 450 = 1,300', cards2.some((x) => x.includes('1,300 kg last week')), true);
@@ -191,13 +192,13 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const sys = await bg();
   check('auto follows system', sys, scheme === 'dark' ? 'rgb(7, 11, 20)' : 'rgb(238, 242, 247)');
-  await page.click('[data-tab=settings]'); await wait(page);
+  await go(page, 'settings'); await wait(page);
   await page.click('[data-action=theme][data-v="light"]'); await wait(page);
   check('light forced', await bg(), 'rgb(238, 242, 247)');
   check('status bar colour follows', await page.evaluate(() => [...document.querySelectorAll('meta[name=theme-color]')].map((m) => m.content).join()), '#eef2f7,#eef2f7');
   await page.reload(); await wait(page);
   check('light remembered after reopening', await bg(), 'rgb(238, 242, 247)');
-  await page.click('[data-tab=settings]'); await wait(page);
+  await go(page, 'settings'); await wait(page);
   await page.click('[data-action=theme][data-v="dark"]'); await wait(page);
   check('dark forced', await bg(), 'rgb(7, 11, 20)');
   await page.click('[data-action=theme][data-v="system"]'); await wait(page);

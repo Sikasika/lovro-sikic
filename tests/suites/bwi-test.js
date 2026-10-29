@@ -1,5 +1,6 @@
 // Insights body-weight overview. Usage: node bwi-test.js <light|dark> <width>
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const scheme = process.argv[2] || 'light', width = +(process.argv[3] || 390);
 const KEY = 'training-tracker.v1';
 const base = require('./wk-seed.js');
@@ -35,7 +36,7 @@ const benchWorkout = (id, n, w) => ({ id, name: 'Bench day', notes: '', start: d
   const load = async (data) => {
     await page.evaluate(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [KEY, data]);
     await page.reload(); await page.waitForTimeout(300);
-    await page.click('[data-tab=insights]'); await page.waitForTimeout(250);
+    await go(page, 'insights'); await page.waitForTimeout(250);
   };
   const st = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const view = async () => (await page.innerText('#view')).replace(/\s+/g, ' ');
@@ -108,24 +109,24 @@ const benchWorkout = (id, n, w) => ({ id, name: 'Bench day', notes: '', start: d
   /* 7. Target set, changed, removed (via the real editor) */
   await load({ ...mk(down) });
   check('7 no target: no target row', await page.$('.bw-ins-target'), null);
-  await page.click('[data-tab=progress]'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
+  await go(page, 'body'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
   await page.fill('#bw-target', '78'); await page.fill('#bw-start', '84'); await page.click('[data-action=bw-goal-save]'); await page.waitForTimeout(200);
-  await page.click('[data-tab=insights]'); await page.waitForTimeout(250);
+  await go(page, 'insights'); await page.waitForTimeout(250);
   const above = cur.avg - 78, pct = Math.round(((84 - cur.avg) / 6) * 100);
   check('7 target set: distance above + % from start', (await page.innerText('.bw-ins-target')).replace(/\s+/g, ' '), `Target 78 kg ${fmt1(above)} kg above ${pct}% of the way from 84 kg, using the 7-day average`);
   check('7 target bar is neutral accent, not green', await page.$eval('.bw-ins .bw-bar span', (s) => getComputedStyle(s).backgroundColor === getComputedStyle(document.querySelector('.tabbar button.active')).color), true);
   check('7 target near the data: dashed line in chart', await page.$$eval('.bw-ins .bw-chart .target', (l) => l.length), 1);
   check('7 target far from the data: noted, not squashed', await page.evaluate(() => { const h = weightChart(weighIns(), { from: sAddDays(sDay(new Date()), -29), target: 60, minLine: 3, sparse: true }); return h.includes('target below the chart') && !h.includes('class="target"'); }), true);
-  await page.click('[data-tab=progress]'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
+  await go(page, 'body'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
   await page.fill('#bw-target', '80'); await page.click('[data-action=bw-goal-save]'); await page.waitForTimeout(200);
-  await page.click('[data-tab=insights]'); await page.waitForTimeout(250);
+  await go(page, 'insights'); await page.waitForTimeout(250);
   check('7 target changed: row + dashed line in chart', `${(await page.innerText('.bw-ins-target')).includes('Target 80 kg')}|${await page.$$eval('.bw-ins .bw-chart .target', (l) => l.length)}`, 'true|1');
   // Target below current → "below" wording when the average is under it (gain direction)
   await page.evaluate(() => { state.settings.weightGoal = { targetKg: 85, startKg: 78, startDate: '2026-10-01' }; save(); render(); });
   check('7 gain target: "below", no judgement', (await page.innerText('.bw-ins-target')).replace(/\s+/g, ' '), (x) => x.includes('Target 85 kg') && x.includes('kg below'));
-  await page.click('[data-tab=progress]'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
+  await go(page, 'body'); await page.click('[data-action=bw-goal]'); await page.waitForTimeout(250);
   await page.click('[data-action=bw-goal-remove]'); await page.waitForTimeout(200);
-  await page.click('[data-tab=insights]'); await page.waitForTimeout(250);
+  await go(page, 'insights'); await page.waitForTimeout(250);
   check('7 target removed: row gone', await page.$('.bw-ins-target'), null);
 
   /* 8. lb */

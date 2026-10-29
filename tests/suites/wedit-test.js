@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const KEY = 'training-tracker.v1';
 const L = (s) => new Date(s).toISOString();
@@ -36,7 +37,7 @@ const close = (a, b) => Math.abs(a - b) < 1e-9;
   const stored = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const wait = (ms = 350) => page.waitForTimeout(ms);
   const wf = (e, s, f) => `#sheet input[data-wfield=${f}][data-entry="${e}"][data-set="${s}"]`;
-  const tab = async (t) => { await page.click(`[data-tab=${t}]`); await wait(100); };
+  const tab = async (t) => { await go(page, t); await wait(100); };
   const openDetail = async (id) => { await tab('history'); await page.click(`[data-action=open-workout][data-id=${id}]`); await wait(); };
   const openEditor = async (id) => { await openDetail(id); await page.click('[data-action=edit-workout]'); await wait(); };
   const historyNames = () => page.$$eval('[data-action=open-workout] .hist-name', (d) => d.map((x) => x.textContent.trim()));

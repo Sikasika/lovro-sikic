@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const KEY = 'training-tracker.v1';
 const L = (s) => new Date(s).toISOString();
@@ -24,7 +25,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.goto('http://localhost:3000/training-tracker/');
   const stored = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const wait = (ms = 300) => page.waitForTimeout(ms);
-  const tab = async (t) => { await page.click(`[data-tab=${t}]`); await wait(100); };
+  const tab = async (t) => { await go(page, t); await wait(100); };
   const f = (e, s, fld) => `#view input[data-field=${fld}][data-entry="${e}"][data-set="${s}"]`;
   const tick = (e, s) => page.click(`[data-action=toggle-set][data-entry="${e}"][data-set="${s}"]`);
   const addEx = async (q) => { await page.click('[data-action=add-exercise]'); await page.fill('#exercise-search', q); await page.click('[data-action=pick-exercise]'); await wait(); };

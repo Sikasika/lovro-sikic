@@ -20,7 +20,8 @@ Screenshots, generated backup files and `summary.txt` go to `tests/out/` (git-ig
 
 | Suite | Covers |
 |---|---|
-| wk-test | Workout tab: start flow, set ticking, finish summary, discard, rest timer |
+| nav-test | Today screen, five tabs, Progress sections, Settings gear, workout in progress |
+| wk-test | Train tab: start flow, set ticking, finish summary, discard, rest timer |
 | logging-test, tpl-test, cardio-test | set types, notes, supersets, templates, cardio logging |
 | wedit-test, hist-test | History list and review, editing saved workouts, previous-session comparison |
 | prog-test | progression trend and next-weight recommendation |
@@ -30,4 +31,4 @@ Screenshots, generated backup files and `summary.txt` go to `tests/out/` (git-ig
 | ps-test, stats-test(-ny), insights-test | Progress, Statistics, Insights |
 | crawl-test | every screen at narrow widths: no sideways scrolling, no inputs under 16px, no errors |
 
-Shared helpers: `flow.js` (start/finish helpers), `*-seed.js` (fixture data).
+Shared helpers: `nav.js` (`go(page, tab)` reaches any tab or Progress section), `flow.js` (start/finish helpers), `*-seed.js` (fixture data).

@@ -681,7 +681,7 @@ function updateRestUI() {
 function updateLiveBar() {
   const bar = $('#live-bar');
   if (!bar) return;
-  const show = !!state.active && ui.tab !== 'workout';
+  const show = !!state.active && ui.tab !== 'workout' && ui.tab !== 'home'; // Home shows its own card
   bar.classList.toggle('hidden', !show);
   document.body.classList.toggle('has-live-bar', show);
   if (!show) return;
@@ -692,7 +692,7 @@ function updateLiveBar() {
 // Keep the workout clock ticking.
 setInterval(() => {
   if (!state.active) return;
-  const el = $('#elapsed');
+  const el = $('#elapsed') || $('#home-elapsed');
   if (el) el.textContent = fmtDuration(Date.now() - new Date(state.active.start));
   updateLiveBar();
 }, 1000);

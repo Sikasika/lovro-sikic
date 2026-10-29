@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const fs = require('fs');
 const SP = process.argv[2];
 const KEY = 'training-tracker.v1', BACKUP = 'training-tracker.v1.backup-before-v2';
@@ -37,7 +38,7 @@ async function session(browser, seed) {
 }
 const stored = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
 const text = (page) => page.textContent('#view');
-const tab = async (page, t) => { await page.click(`[data-tab=${t}]`); await page.waitForTimeout(100); };
+const tab = async (page, t) => { await go(page, t); await page.waitForTimeout(100); };
 const setUnit = async (page, u) => { await tab(page, 'settings'); await page.click(`[data-action=unit][data-unit=${u}]`); };
 const openFirstHistory = async (page) => { await tab(page, 'history'); await page.click('[data-action=open-workout]'); await page.waitForTimeout(350); const t = await page.textContent('#sheet'); await page.click('#sheet [data-action=close-sheet]'); return t; };
 

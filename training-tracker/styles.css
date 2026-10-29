@@ -1092,3 +1092,47 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .rec-use:active { opacity: 0.8; }
 .prog-last { display: flex; gap: 6px; align-items: baseline; font-size: 13px; overflow-wrap: anywhere; }
 .prog-last.muted { color: var(--muted); }
+
+/* ==========================================================================
+   Navigation: Today (Home), Progress sections, Settings via the gear (home.js)
+   ========================================================================== */
+.gear-btn { width: 44px; height: 44px; border: 0; border-radius: 12px; background: none; color: var(--muted); display: grid; place-items: center; margin-bottom: -4px; }
+.gear-btn svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.gear-btn:active { background: var(--input); }
+.back-link { display: inline-block; font-size: 16px; font-weight: 600; padding: 4px 0 2px; }
+
+.subnav { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; margin: 4px -16px 0; padding: 0 16px; border-bottom: 0.5px solid var(--separator); }
+.subnav button { min-width: 0; min-height: 44px; padding: 0 6px; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 600; border-bottom: 2.5px solid transparent; margin-bottom: -0.5px; white-space: nowrap; }
+.subnav button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+.home-date { font-size: 15px; color: var(--muted); margin: 0 4px 10px; }
+.home-today { margin-top: 0; }
+.home-live {
+  padding: 16px 18px 18px;
+  border-radius: 18px;
+  background: linear-gradient(140deg, #1645b8 0%, #0b1530 85%);
+  color: #f2f6fc;
+}
+.home-live-top { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: rgba(242, 246, 252, 0.8); }
+.home-live-time { margin-left: auto; font-variant-numeric: tabular-nums; color: #f2f6fc; font-weight: 700; }
+.home-live-name { font-size: 22px; font-weight: 800; margin-top: 6px; overflow-wrap: anywhere; }
+.home-live-sub { font-size: 15px; color: rgba(242, 246, 252, 0.78); margin: 2px 0 14px; }
+
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.wk-day { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 4px; border-radius: 10px; }
+.wk-day.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.wk-day.done { background: var(--success-soft); }
+.wk-day.future { opacity: 0.55; }
+.wk-name { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.wk-num { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wk-dots { display: flex; gap: 2px; min-height: 7px; }
+.wk-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--act); }
+.wk-sum { margin-top: 10px; font-size: 14px; color: var(--muted); text-align: center; }
+
+.home-bw { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; border: 0; text-align: left; color: var(--text); }
+.home-bw b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.home-bw small { display: block; font-size: 12px; color: var(--muted); line-height: 1.3; }
+.home-more { display: block; margin: 6px 4px 0 auto; }
+
+.plans-soon-title { font-size: 20px; font-weight: 800; }
+.plans-soon p { color: var(--muted); font-size: 15px; margin: 8px 0 12px; }

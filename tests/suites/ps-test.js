@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const KEY = 'training-tracker.v1';
 const L = (s) => new Date(s).toISOString();
@@ -38,7 +39,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.addInitScript(([k, v]) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem(k, v); sessionStorage.setItem('seeded', '1'); } }, [KEY, JSON.stringify(seed)]);
   await page.goto('http://localhost:3000/training-tracker/');
   const wait = (ms = 300) => page.waitForTimeout(ms);
-  const tab = async (t) => { await page.click(`[data-tab=${t}]`); await wait(100); };
+  const tab = async (t) => { await go(page, t); await wait(100); };
   const card = (sel, l) => page.$$eval(`${sel} .stat`, (els, l) => els.find((e) => e.querySelector('.lbl').textContent === l)?.querySelector('.num').innerText.replace(/\s+/g, ' ').trim(), l);
   const compare = () => page.$$eval('.compare tbody tr', (rows) => Object.fromEntries(rows.map((r) => [r.querySelector('th').textContent, [...r.querySelectorAll('td')].map((d) => d.innerText.trim())])));
   const records = () => page.$$eval('.section-title', (ts) => {

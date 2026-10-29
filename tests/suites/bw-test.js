@@ -1,6 +1,7 @@
 // Body-weight tracking: entry, 7-day average, target, chart, Statistics, Insights, backup/restore.
 // Usage: node bw-test.js <light|dark> <width>
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const scheme = process.argv[2] || 'light', width = +(process.argv[3] || 390);
 const KEY = 'training-tracker.v1';
 const base = require('./wk-seed.js'); // workouts + templates (no weigh-ins): an existing user's data
@@ -28,19 +29,21 @@ const ago = (n) => key(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.get
   const st = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const put = (data) => page.evaluate(([k, v]) => { localStorage.setItem(k, JSON.stringify(v)); }, [KEY, data]);
   const wait = (ms = 250) => page.waitForTimeout(ms);
-  const tab = async (t) => { await page.click(`[data-tab=${t}]`); await wait(); };
+  const tab = async (t) => { await go(page, t); await wait(); };
   const tiles = () => page.$$eval('#view .stats:first-of-type .stat .num', (n) => n.map((x) => x.textContent.trim()));
   const bwTiles = () => page.evaluate(() => [...document.querySelectorAll('#view .stats')][0] ? [...[...document.querySelectorAll('#view .stats')][0].querySelectorAll('.stat')].map((s) => `${s.querySelector('.num').textContent.trim()}|${s.querySelector('.lbl').textContent.trim()}`) : []);
   const workoutsJSON = JSON.stringify(base.workouts);
 
   /* A. Existing user, no weigh-ins yet */
   await tab('progress');
-  check('A card shown, empty, workouts section still there', `${await page.isVisible('#bw-quick')}|${(await page.innerText('#view')).includes('Total workouts')}|${await page.innerText('[data-action=bw-log-today]')}`, 'true|true|Log today');
+  check('A workouts overview still on Progress › Overview', (await page.innerText('#view')).includes('Total workouts'), true);
+  await tab('body');
+  check('A card shown under Progress › Body, empty', `${await page.isVisible('#bw-quick')}|${await page.innerText('[data-action=bw-log-today]')}`, 'true|Log today');
   check('A existing data has bodyweights default []', JSON.stringify((await page.evaluate(() => state.bodyweights))), '[]');
   await tab('statistics');
   check('A statistics: no weigh-ins message', (await page.innerText('#view')).includes('No weigh-ins yet'), true);
   check('A old "isn\'t recorded" placeholder gone', (await page.innerText('#view')).includes("isn't recorded"), false);
-  await tab('progress');
+  await tab('body');
 
   /* B. Quick entry for today */
   for (const bad of ['', 'abc', '5', '999']) {
@@ -103,7 +106,7 @@ const ago = (n) => key(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.get
     { id: 'a7', date: ago(7), kg: 84 }, { id: 'a10', date: ago(10), kg: 83 }, { id: 'a13', date: ago(13), kg: 85 }, // prev window: 84
     { id: 'a14', date: ago(14), kg: 90 } // outside both
   ];
-  await put(s); await page.reload(); await wait(500); await tab('progress');
+  await put(s); await page.reload(); await wait(500); await tab('body');
   check('F 7-day avg = mean of days 0–6 only; change vs days 7–13', JSON.stringify(await bwTiles()), JSON.stringify(['80|Latest (kg)', '81|7-day avg (kg)', '−3|Change (kg)']));
   check('F calc functions agree', await page.evaluate(() => { const l = weighIns(); const t = weightTrend(l); return `${t.cur.avg}|${t.cur.n}|${t.prev.avg}|${t.prev.n}|${t.change}`; }), '81|3|84|3|-3');
   check('F single weigh-in in prev window → no change shown', await page.evaluate(() => { const l = weighIns().filter((w) => !['a10', 'a13'].includes(w.id)); return weightTrend(l).change; }), null);
@@ -130,14 +133,14 @@ const ago = (n) => key(new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.get
   check('G editing target keeps start date', JSON.stringify((await st()).settings.weightGoal), JSON.stringify({ targetKg: 79, startKg: 84, startDate: ago(0) }));
 
   /* H. Pounds: shown and typed in lb, stored in kg */
-  await tab('settings'); await page.click('[data-action=unit][data-unit=lb]'); await tab('progress');
+  await tab('settings'); await page.click('[data-action=unit][data-unit=lb]'); await tab('body');
   check('H tiles in lb', JSON.stringify((await bwTiles()).slice(0, 2)), JSON.stringify(['176.4|Latest (lb)', '178.6|7-day avg (lb)']));
   await page.fill('#bw-quick', '180'); await page.click('[data-action=bw-log-today]'); await wait();
   s = await st();
   check('H 180 lb stored as kg, shown as 180', `${close(s.bodyweights.find((w) => w.date === ago(0)).kg, 180 * 0.45359237)}|${(await bwTiles())[0]}`, 'true|180|Latest (lb)');
   check('H out-of-range message in lb', await page.evaluate(() => parseWeightInput('20').error), 'Enter a weight between 44.1 and 881.8 lb.');
-  await tab('settings'); await page.click('[data-action=unit][data-unit=kg]'); await tab('progress');
-  s = await st(); s.bodyweights.find((w) => w.date === ago(0)).kg = 80; await put(s); await page.reload(); await wait(500); await tab('progress');
+  await tab('settings'); await page.click('[data-action=unit][data-unit=kg]'); await tab('body');
+  s = await st(); s.bodyweights.find((w) => w.date === ago(0)).kg = 80; await put(s); await page.reload(); await wait(500); await tab('body');
 
   /* I. Chart */
   check('I 30-day chart with dots + avg line', `${await page.$$eval('#view .bw-chart .wdot', (d) => d.length)}|${await page.$$eval('#view .bw-chart .line', (d) => d.length)}`, '7|1');

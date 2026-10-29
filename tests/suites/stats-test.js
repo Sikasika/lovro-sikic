@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const L = (s) => new Date(s).toISOString(); // parsed in Europe/Zagreb (process TZ)
 const set = (w, r) => ({ weight: w === '' ? '' : String(w), reps: String(r), done: true });
@@ -42,7 +43,7 @@ const check = (name, got, want) => results.push(`${String(got) === String(want) 
   await page.clock.setFixedTime(new Date('2026-10-28T18:00:00+01:00'));
   await page.addInitScript((d) => { if (!localStorage.getItem('training-tracker.v1')) localStorage.setItem('training-tracker.v1', JSON.stringify(d)); }, data);
   await page.goto('http://localhost:3000/training-tracker/');
-  await page.click('[data-tab=statistics]');
+  await go(page, 'statistics');
   await page.waitForTimeout(200);
 
   const stat = async (label) => page.$$eval('.stats-grid .stat', (els, l) => {
@@ -51,7 +52,7 @@ const check = (name, got, want) => results.push(`${String(got) === String(want) 
     total: await stat('Workouts'), hours: await stat('Training time'), avg: await stat('Avg / week'),
     week: await stat('This week'), month: await stat('This month'), cur: await stat('Day streak'), longest: await stat('Longest day streak') });
   const tabTitle = await page.textContent('#title');
-  check('title', tabTitle, 'Statistics');
+  check('title', tabTitle, 'Progress');
   check('skipped note', (await page.textContent('#view')).includes('2 workouts were left out'), true);
 
   // Summary: 30D default
@@ -163,13 +164,13 @@ const check = (name, got, want) => results.push(`${String(got) === String(want) 
 
   // Empty state
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('training-tracker.v1')); s.workouts = []; localStorage.setItem('training-tracker.v1', JSON.stringify(s)); });
-  await page.reload(); await page.click('[data-tab=statistics]');
+  await page.reload(); await go(page, 'statistics');
   const v = await page.textContent('#view');
   check('empty state', v.includes('No completed workouts yet') && v.includes('No workouts in this range') && v.includes('No workouts in this period'), true);
   await page.screenshot({ path: `${SP}/stats/${scheme}-empty.png`, fullPage: true });
   // Corrupt data -> error state, other tabs still work
   await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('training-tracker.v1')); s.workouts = [{ id: 'x', start: new Date().toISOString(), entries: [{ exerciseId: 'bench', sets: 5 }] }]; localStorage.setItem('training-tracker.v1', JSON.stringify(s)); });
-  await page.reload(); await page.click('[data-tab=statistics]');
+  await page.reload(); await go(page, 'statistics');
   check('error state', (await page.textContent('#view')).includes("Couldn't calculate statistics") || (await page.textContent('#view')).includes('left out'), true);
   console.log(results.join('\n'));
   console.log('FAILS:', results.filter((r) => r.startsWith('FAIL')).length, 'ERRORS:', JSON.stringify(errors));

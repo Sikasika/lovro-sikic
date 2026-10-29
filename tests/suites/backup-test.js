@@ -1,4 +1,5 @@
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const fs = require('fs');
 const SP = process.argv[2], scheme = process.argv[3] || 'light';
 const DIR = `${SP}/backup-files`;
@@ -43,7 +44,7 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   await page.goto('http://localhost:3000/training-tracker/');
   const stored = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const wait = (ms = 300) => page.waitForTimeout(ms);
-  const toSettings = async () => { await page.click('[data-tab=settings]'); await wait(100); };
+  const toSettings = async () => { await go(page, 'settings'); await wait(100); };
   const sheetText = async () => (await page.innerText('#sheet')).replace(/\s+/g, ' ');
   const lastToast = () => page.evaluate(() => [...document.querySelectorAll('.toast')].pop()?.textContent || '');
   const chooseFile = async (path) => { await toSettings(); await page.setInputFiles('#import-file', path); await wait(400); };
@@ -80,8 +81,8 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   let s = await stored();
   check('restored exactly', pick(s), pick(original));
   check('restore message', await lastToast(), 'Restored 2 workouts, 2 templates');
-  for (const tab of ['workout', 'history', 'progress', 'statistics', 'settings']) { await page.click(`[data-tab=${tab}]`); await wait(150); }
-  await page.click('[data-tab=history]'); await page.click('[data-action=open-workout][data-id="w2"]'); await wait();
+  for (const tab of ['workout', 'history', 'progress', 'statistics', 'settings']) { await go(page, tab); await wait(150); }
+  await go(page, 'history'); await page.click('[data-action=open-workout][data-id="w2"]'); await wait();
   t = await sheetText();
   check('restored details render (lb, types, plan, note, superset, cardio)', ['Warm-up', 'Drop set', 'plan 220.5×5', 'Seat 4', 'SUPERSET A', '3.11 mi'].every((x) => t.toUpperCase().includes(x.toUpperCase())), true);
   await page.click('#sheet [data-action=close-sheet]');
@@ -106,8 +107,8 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   check('older: weights converted to kg', s.workouts[0].entries[0].sets[0].weight, (v) => Math.abs(v - 135 * 0.45359237) < 1e-9);
   check('older: missing optional fields fine', `${s.templates.length}|${s.templates[0].entries[0].sets}|${s.active}|${s.settings.unit}`, '1|3|null|lb');
   check('older: Walking/Swimming added', ['Walking', 'Swimming'].every((n) => s.exercises.some((e) => e.name === n)), true);
-  for (const tab of ['workout', 'history', 'progress', 'statistics', 'settings']) { await page.click(`[data-tab=${tab}]`); await wait(150); }
-  await page.click('[data-tab=workout]'); await F.startTemplate(); await wait();
+  for (const tab of ['workout', 'history', 'progress', 'statistics', 'settings']) { await go(page, tab); await wait(150); }
+  await go(page, 'workout'); await F.startTemplate(); await wait();
   check('old template still starts (3 sets)', await page.$$eval('#view .set-row', (r) => r.length), 3);
 
   await page.click('[data-action=discard]').then(() => page.waitForTimeout(500));
@@ -148,7 +149,7 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   check('missing exercise warned, not rejected', (await sheetText()).includes('will show as “Deleted exercise”'), true);
   await page.click('[data-action=restore-toggle-copy]');
   await page.click('[data-action=restore-confirm]'); await wait(500);
-  await page.click('[data-tab=history]'); await page.click('[data-action=open-workout]'); await wait();
+  await go(page, 'history'); await page.click('[data-action=open-workout]'); await wait();
   check('orphan shows as Deleted exercise', (await sheetText()).includes('Deleted exercise'), true);
   await page.click('#sheet [data-action=close-sheet]');
   await toSettings();

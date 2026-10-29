@@ -1,5 +1,6 @@
 // History: list entries, workout review, previous-session comparison. Usage: node hist-test.js <light|dark> <width>
 const { chromium, devices } = require('playwright');
+const { go } = require('./nav');
 const scheme = process.argv[2] || 'light', width = +(process.argv[3] || 390);
 const KEY = 'training-tracker.v1';
 const base = require('./hist-seed.js');
@@ -23,7 +24,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
   const load = async (data) => {
     await page.evaluate(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [KEY, data]);
     await page.reload(); await page.waitForTimeout(250);
-    await page.click('[data-tab=history]'); await page.waitForTimeout(150);
+    await go(page, 'history'); await page.waitForTimeout(150);
   };
   const st = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
   const open = async (id) => { await page.click(`[data-action=open-workout][data-id="${id}"]`); await page.waitForTimeout(250); };
@@ -134,8 +135,8 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
   check('delete removes it and returns to the list', `${(await st()).workouts.length}|${await page.isVisible('#sheet')}`, '2|false');
 
   /* Active workout alongside History; detail opened from the Workout tab says Done */
-  await page.click('[data-tab=workout]'); await page.click('[data-action=start-flow]'); await page.click('#sheet [data-action=start-empty]'); await page.waitForTimeout(600);
-  await page.click('[data-tab=history]'); await page.waitForTimeout(150);
+  await go(page, 'workout'); await page.click('[data-action=start-flow]'); await page.click('#sheet [data-action=start-empty]'); await page.waitForTimeout(600);
+  await go(page, 'history'); await page.waitForTimeout(150);
   check('active workout: live bar on History, list works', `${await page.isVisible('#live-bar')}|${(await listRows()).length}`, 'true|2');
   await open('old');
   check('active workout not shown or counted in History', (await page.innerText('#sheet')).includes('Afternoon Workout') || (await page.innerText('#sheet')).includes('Evening Workout'), false);
