@@ -245,6 +245,10 @@ function validateBackup(parsed) {
     if (src.settings.unit != null && !['kg', 'lb'].includes(src.settings.unit)) errors.push('The unit setting is not kg or lb.');
     if (src.settings.rest != null && !(typeof src.settings.rest === 'number' && src.settings.rest >= 0)) warnings.push('The rest timer setting was invalid, so the default (90 s) will be used.');
     if (src.settings.weightGoal != null && !validWeightGoal(src.settings.weightGoal)) warnings.push('The target weight in the backup was invalid, so it will be left out.');
+    for (const [k, u] of [['weightStepKg', 'kg'], ['weightStepLb', 'lb']]) {
+      const v = src.settings[k];
+      if (v != null && !(typeof v === 'number' && v >= WEIGHT_STEP_LIMITS[u][0] && v <= WEIGHT_STEP_LIMITS[u][1])) warnings.push(`The weight step (${u}) in the backup was invalid, so the default (${WEIGHT_STEP_DEFAULT[u]} ${u}) will be used.`);
+    }
   }
 
   if (errors.length) {
@@ -272,6 +276,10 @@ function validateBackup(parsed) {
   };
   if (!(typeof restored.settings.rest === 'number' && restored.settings.rest >= 0)) restored.settings.rest = defaults.settings.rest;
   if (!validWeightGoal(restored.settings.weightGoal)) delete restored.settings.weightGoal;
+  for (const [k, u] of [['weightStepKg', 'kg'], ['weightStepLb', 'lb']]) {
+    const v = restored.settings[k];
+    if (!(typeof v === 'number' && v >= WEIGHT_STEP_LIMITS[u][0] && v <= WEIGHT_STEP_LIMITS[u][1])) restored.settings[k] = WEIGHT_STEP_DEFAULT[u];
+  }
   addNewDefaultExercises(restored);
 
   const starts = restored.workouts.map((w) => new Date(w.start)).sort((a, b) => a - b);

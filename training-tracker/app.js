@@ -45,7 +45,7 @@ function defaultState() {
     templates: [],
     active: null,
     bodyweights: [], // weigh-ins, see bodyweight.js
-    settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6 },
+    settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5 },
     schemaVersion: SCHEMA_VERSION,
     cardioExercisesAdded: true
   };
@@ -671,6 +671,58 @@ function exerciseComparison(w, exerciseId, ck) {
   return { line: `<div class="hcmp"><span class="muted">Previous ${esc(dateText(prev))}:</span> ${esc(list)}${esc(countNote)}</div>`, perSet };
 }
 
+/* ----- Progression display (rules in calc.js), shared by History and the Workout tab ----- */
+
+const shortDay = (iso) => fmtDate(iso, { weekday: 'short', day: 'numeric', month: 'short' });
+const loadText = (kg) => `${fmtWeight(kg)} ${unit()}`;
+const setPair = (s) => (setW(s) ? `${fmtWeight(setW(s))} ${unit()} × ${setR(s)}` : `${setR(s)} reps`);
+
+/** Trend line (↑ ↓ → with words), or a plain "no clear trend" note. '' when there's nothing to compare. */
+function trendHtml(t, vsLabel) {
+  if (!t) return '';
+  if (!t.dir) {
+    const why = t.reason === 'mixed' ? 'one session used added weight and the other bodyweight only'
+      : `the weights differ and sets above ${E1RM_MAX_REPS} reps can't be converted to estimated strength`;
+    return `<div class="trend none"><span class="trend-t">No clear trend ${esc(vsLabel)}: ${esc(why)}.</span></div>`;
+  }
+  const ic = { up: '↑', down: '↓', same: '→' }[t.dir];
+  const reps = (d) => `${d > 0 ? '+' : '−'}${Math.abs(d)} rep${Math.abs(d) === 1 ? '' : 's'}`;
+  let text;
+  if (t.kind === 'weight') text = t.dir === 'same' ? `No significant change at ${loadText(t.weight)} (best set ${t.curReps} reps)` : `${reps(t.dr)} at ${loadText(t.weight)}`;
+  else if (t.kind === 'reps') text = t.dir === 'same' ? `No significant change (best set ${t.curReps} reps)` : `${reps(t.dr)} (best set ${t.curReps} vs ${t.prevReps})`;
+  else if (t.kind === 'heavier') text = `${setPair(t.cur)} vs ${setPair(t.prev)} (heavier, at least as many reps)`;
+  else if (t.kind === 'lighter') text = `${setPair(t.cur)} vs ${setPair(t.prev)} (lighter, no more reps)`;
+  else {
+    const pct = `${t.pct > 0 ? '+' : '−'}${Math.round(Math.abs(t.pct) * 100)}%`;
+    text = t.dir === 'same'
+      ? `No significant change: ${setPair(t.cur)} vs ${setPair(t.prev)} (similar estimated strength)`
+      : `${setPair(t.cur)} vs ${setPair(t.prev)} (estimated strength ${pct})`;
+  }
+  return `<div class="trend ${t.dir}"><span class="trend-ic" aria-hidden="true">${ic}</span><span class="trend-t">${esc(text)} <span class="trend-vs">${esc(vsLabel)}</span></span></div>`;
+}
+
+/** Recommendation line (neutral colour, never an arrow). '' when there is none. */
+function adviceHtml(a, label, basis, extra = '') {
+  if (!a) return '';
+  const text = a.action === 'keep' ? `Keep ${loadText(a.load)} · aim for more reps`
+    : `${a.action === 'increase' ? 'Increase' : 'Decrease'} weight${a.next != null ? ` → ${loadText(a.next)}` : ''}`;
+  return `<div class="rec rec-${a.action}"><span class="rec-k">${esc(label)}</span><span class="rec-t"><b>${esc(text)}</b> <span class="rec-basis">${esc(basis)}</span></span>${extra}</div>`;
+}
+
+/** Trend + recommendation for one strength exercise in a saved workout. */
+function historyProgression(w, exerciseId) {
+  const cur = progressionSets(w, exerciseId);
+  if (!cur.length) return '';
+  const prev = previousWorkingSession(state.workouts, w, exerciseId);
+  const later = laterWorkingSession(state.workouts, w, exerciseId);
+  const advice = progressionAdvice(cur);
+  const trend = prev ? trendHtml(strengthTrend(cur, prev.sets), `vs ${shortDay(prev.workout.start)}`) : '';
+  const rec = later
+    ? adviceHtml(advice, 'At the time', `from this session · done again on ${shortDay(later.start)}`)
+    : adviceHtml(advice, 'Next time', 'from this session');
+  return trend || rec ? `<div class="prog">${trend}${rec}</div>` : '';
+}
+
 /** Every saved set of an entry, completed or not, with its comparison. */
 function historySetRows(e, ck, perSet) {
   const labels = setLabels(e.sets || []);
@@ -742,6 +794,7 @@ function renderWorkoutDetail(w) {
           <div class="hist-ex-head"><span class="hist-ex-name">${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
           ${e.note ? `<div class="detail-note">📝 ${esc(e.note)}</div>` : ''}
           ${cmp.line}
+          ${!ck && first ? historyProgression(w, e.exerciseId) : ''}
           <div class="hsets">${historySetRows(e, ck, cmp.perSet)}${cardioTotalLine(e, ck)}</div>
         </section>`;
       }).join('')}
@@ -1108,6 +1161,10 @@ function renderSettings() {
       <label class="field">
         <span>Rest timer (seconds)</span>
         <input type="number" id="rest-seconds" min="0" step="15" inputmode="numeric" value="${state.settings.rest}">
+      </label>
+      <label class="field">
+        <span>Weight step (${esc(unit())})<span class="sub" style="display:block;font-size:13px;color:var(--muted)">Used for suggested next weights</span></span>
+        <input type="number" id="weight-step" min="${WEIGHT_STEP_LIMITS[unit()][0]}" max="${WEIGHT_STEP_LIMITS[unit()][1]}" step="any" inputmode="decimal" value="${weightStep()}">
       </label>
     </div>
 
@@ -1553,6 +1610,11 @@ document.addEventListener('input', (ev) => {
     $('#exercise-list').innerHTML = exercisePickerHtml(t.value, t.dataset.mode);
   } else if (t.id === 'rest-seconds') {
     state.settings.rest = Math.max(0, Math.round(+t.value || 0)); save();
+  } else if (t.id === 'weight-step') {
+    // Kept per unit; out-of-range values are ignored (the default stays in use).
+    const v = num(t.value.replace(',', '.')), u = unit() === 'lb' ? 'lb' : 'kg';
+    const [lo, hi] = WEIGHT_STEP_LIMITS[u];
+    if (v != null && v >= lo && v <= hi) { state.settings[u === 'lb' ? 'weightStepLb' : 'weightStepKg'] = v; save(); }
   }
 });
 

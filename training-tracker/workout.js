@@ -363,6 +363,7 @@ function renderEntry(entry, i, letters = []) {
       </div>
       ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${name}"></div>` : ''}
       ${last?.note ? `<div class="ex-hint">Last note: “${esc(last.note)}”</div>` : ''}
+      ${ck ? '' : `<div class="prog-wrap" data-prog="${i}">${liveProgression(i)}</div>`}
       <div class="set-grid${ck ? ' cardio' : ''}">
         <div class="set-head" aria-hidden="true">
           <span>Set</span><span>Previous</span>
@@ -377,6 +378,40 @@ function renderEntry(entry, i, letters = []) {
         ${entry.sets.length > 1 ? `<button type="button" class="ex-remove-set" data-action="remove-set" data-entry="${i}">Remove last</button>` : ''}
       </div>
     </section>`;
+}
+
+/**
+ * Progression panel for a strength exercise in the live workout (rules in calc.js):
+ * last session's working sets; once working sets are ticked, today's trend vs last time;
+ * and the recommendation — from last session until working sets are ticked, then from
+ * today's ticked working sets ("based on today so far"). Display only, plus "Use" which
+ * fills empty weights of unticked working sets in this exercise.
+ */
+function liveProgression(i) {
+  const w = state.active, e = w?.entries[i];
+  if (!e || cardioKindOf(e.exerciseId)) return '';
+  const id = e.exerciseId;
+  const prev = previousWorkingSession(state.workouts, w, id);
+  const today = progressionSets(w, id);
+  const lastLine = prev
+    ? `<div class="prog-last"><span class="rec-k">Last</span><span>${esc(shortDay(prev.workout.start))}: ${esc(prev.sets.map(shortSet).join(', '))}</span></div>`
+    : '<div class="prog-last muted">No previous session with working sets</div>';
+  const trend = today.length && prev ? trendHtml(strengthTrend(today, prev.sets), `today vs ${shortDay(prev.workout.start)}`) : '';
+  const advice = today.length ? progressionAdvice(today) : prev ? progressionAdvice(prev.sets) : null;
+  const basis = today.length ? 'based on today so far' : prev ? `based on ${shortDay(prev.workout.start)}` : '';
+  const kg = advice ? (advice.action === 'keep' ? advice.load : advice.next) : null;
+  const fillable = kg != null && e.sets.some((s) => setType(s) === 'working' && !s.done && (s.weight === '' || s.weight == null));
+  const use = fillable ? `<button type="button" class="rec-use" data-action="use-weight" data-entry="${i}" data-kg="${kg}">Use ${esc(loadText(kg))}</button>` : '';
+  return `<div class="prog">${lastLine}${trend}${adviceHtml(advice, 'Next', basis, use)}</div>`;
+}
+
+/** Re-render progression panels whose content changed (after ticks and typing). */
+function refreshProgression() {
+  if (!state.active) return;
+  document.querySelectorAll('#view .prog-wrap').forEach((el) => {
+    const html = liveProgression(+el.dataset.prog);
+    if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  });
 }
 
 /** One set row: label (opens the set menu), previous, two inputs, ✓. */
@@ -435,6 +470,7 @@ function syncWorkoutStatus() {
   const fill = $('#sb-fill');
   if (fill) fill.style.width = `${c.total ? Math.round((c.done / c.total) * 100) : 0}%`;
   updateRestUI();
+  refreshProgression();
 }
 
 /** Tick or untick one set. */
@@ -664,7 +700,7 @@ setInterval(() => {
 /* ---------- Events (called from the single click/input handlers in app.js) ---------- */
 
 /** Actions that only make sense while a workout is in progress. */
-const LIVE_ACTIONS = new Set(['finish', 'save-workout', 'discard', 'add-exercise', 'toggle-set', 'add-set', 'remove-set', 'entry-menu', 'move-entry', 'remove-entry', 'entry-note', 'entry-link', 'entry-unlink', 'rest-adjust']);
+const LIVE_ACTIONS = new Set(['finish', 'save-workout', 'discard', 'add-exercise', 'toggle-set', 'add-set', 'remove-set', 'entry-menu', 'move-entry', 'remove-entry', 'entry-note', 'entry-link', 'entry-unlink', 'rest-adjust', 'use-weight']);
 
 /** Handle a Workout-tab action. Returns true if it was one. */
 function handleWorkoutAction(action, el, ei, si) {
@@ -728,6 +764,22 @@ function handleWorkoutAction(action, el, ei, si) {
     case 'entry-unlink': unlinkSuperset(state.active.entries, ei); save(); closeSheet(); render(); break;
     case 'rest-adjust': if (ui.restEnd) { ui.restEnd += +el.dataset.dir * 1000; tickRest(); } break;
     case 'rest-skip': stopRest(); break;
+    case 'use-weight': {
+      // Fill only empty weights of unticked working sets; never overwrite or tick anything.
+      const e = state.active.entries[ei], kg = Number(el.dataset.kg);
+      if (!e || !(kg > 0)) break;
+      let n = 0;
+      e.sets.forEach((s, j) => {
+        if (setType(s) !== 'working' || s.done || (s.weight !== '' && s.weight != null)) return;
+        s.weight = kg; n++;
+        const input = document.querySelector(`#view [data-field="weight"][data-entry="${ei}"][data-set="${j}"]`);
+        if (input) input.value = inputWeight(kg);
+      });
+      save();
+      refreshProgression();
+      toast(n ? `${loadText(kg)} filled in ${n} set${n === 1 ? '' : 's'}` : 'No empty working sets to fill');
+      break;
+    }
     default: return false;
   }
   return true;
@@ -750,6 +802,7 @@ function handleWorkoutInput(t) {
       set[t.dataset.field] = value;
     }
     save();
+    refreshProgression(); // trend/recommendation follow edits; the "Use" button follows empty weights
     return true;
   }
   if (t.id === 'workout-name') { state.active.name = t.value; save(); return true; }

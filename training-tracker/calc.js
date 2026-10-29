@@ -691,3 +691,130 @@ function cardioTotals(sets) {
     bt: both.reduce((a, s) => a + num(s.duration), 0)
   };
 }
+
+/* ---------- Progression: trend vs last time, and next-weight recommendation ----------
+
+   Strength exercises only. "Working sets" = completed sets of type working with reps > 0;
+   warm-ups and drop sets never count. The number of sets doesn't matter.
+
+   Trend (how this session compares with the previous one; the only place with ↑/↓):
+   - Previous session: the most recent earlier workout with at least one completed
+     working set of the same exercise.
+   - Same top working weight (equal in the display unit): best reps at that weight;
+     +1 or more = up, −1 or less = down, otherwise no significant change.
+   - Different top weight: if the heavier session also did at least as many reps on its
+     top set, that is clearly up (or down, seen from the lighter one) — no estimate needed.
+     Otherwise best estimated 1RM (Epley, sets of 1–12 reps) of each session; more than
+     +2% = up, more than −2% = down, otherwise no significant change. Without an
+     estimated 1RM on both sides (e.g. 13+ reps) there is no trend.
+   - Bodyweight (no weight in either session): best reps, ±1 rep.
+   - Weighted vs bodyweight: no trend.
+
+   Recommendation (what weight to use next; never shown as up/down):
+   - Increase if any working set has 13+ reps, or all working sets have 12+ reps.
+   - Decrease if all working sets are below 8 reps.
+   - Otherwise keep the weight and aim for more reps.
+   - Current load = heaviest working weight; next load = current ± the weight step
+     setting (default 2.5 kg / 5 lb), in the selected unit. No weight logged (bodyweight)
+     = no recommendation; no working sets = no recommendation.
+*/
+
+const PROG_REPS_MIN = 8;
+const PROG_REPS_TOP = 12;
+const PROG_REPS_JUMP = 13;
+const TREND_E1RM_BAND = 0.02;
+const WEIGHT_STEP_DEFAULT = { kg: 2.5, lb: 5 };
+const WEIGHT_STEP_LIMITS = { kg: [0.25, 50], lb: [0.5, 100] };
+
+/** Weight step in the selected unit (setting, else default). */
+function weightStep() {
+  const u = unit() === 'lb' ? 'lb' : 'kg';
+  const v = Number(state.settings?.[u === 'lb' ? 'weightStepLb' : 'weightStepKg']);
+  const [lo, hi] = WEIGHT_STEP_LIMITS[u];
+  return Number.isFinite(v) && v >= lo && v <= hi ? v : WEIGHT_STEP_DEFAULT[u];
+}
+
+/** Equal loads in the display unit (stored kg can differ by rounding after lb input). */
+const sameLoad = (a, b) => Math.abs(toDisplayWeight(a) - toDisplayWeight(b)) < 0.05;
+const setW = (s) => num(s.weight) || 0;
+const setR = (s) => num(s.reps) || 0;
+
+/** Completed working sets with reps of one exercise in a workout. */
+function progressionSets(w, exerciseId) {
+  return comparableSets(w, exerciseId).working.filter((s) => setR(s) > 0);
+}
+
+/** Most recent earlier workout with completed working sets of this exercise: { workout, sets } or null. */
+function previousWorkingSession(workouts, w, exerciseId) {
+  const t = new Date(w.start).getTime();
+  let best = null;
+  for (const x of workouts) {
+    if (x.id === w.id) continue;
+    const xt = new Date(x.start).getTime();
+    if (!(xt < t) || (best && xt <= best.t)) continue;
+    const sets = progressionSets(x, exerciseId);
+    if (sets.length) best = { t: xt, workout: x, sets };
+  }
+  return best && { workout: best.workout, sets: best.sets };
+}
+
+/** True when a later saved workout has working sets of this exercise. */
+function laterWorkingSession(workouts, w, exerciseId) {
+  const t = new Date(w.start).getTime();
+  return workouts.filter((x) => x.id !== w.id && new Date(x.start).getTime() > t && progressionSets(x, exerciseId).length)
+    .sort((a, b) => new Date(a.start) - new Date(b.start))[0] || null;
+}
+
+/**
+ * Trend of `cur` vs `prev` working sets. Returns null when either is empty, else
+ * { dir: 'up'|'down'|'same'|null, kind: 'weight'|'e1rm'|'reps'|'unclear', ... } (dir null = no trend).
+ */
+function strengthTrend(cur, prev) {
+  if (!cur.length || !prev.length) return null;
+  const cw = cur.some((s) => setW(s) > 0), pw = prev.some((s) => setW(s) > 0);
+  const dirOf = (d, band) => (d >= band ? 'up' : d <= -band ? 'down' : 'same');
+  if (cw !== pw) return { dir: null, kind: 'unclear', reason: 'mixed' };
+  if (!cw) {
+    const a = Math.max(...cur.map(setR)), b = Math.max(...prev.map(setR));
+    return { dir: dirOf(a - b, 1), kind: 'reps', dr: a - b, curReps: a, prevReps: b };
+  }
+  const W = Math.max(...cur.map(setW)), P = Math.max(...prev.map(setW));
+  if (sameLoad(W, P)) {
+    const a = Math.max(...cur.filter((s) => sameLoad(setW(s), W)).map(setR));
+    const b = Math.max(...prev.filter((s) => sameLoad(setW(s), P)).map(setR));
+    return { dir: dirOf(a - b, 1), kind: 'weight', weight: W, dr: a - b, curReps: a, prevReps: b };
+  }
+  // Top set = most reps at the heaviest weight. Heavier with at least as many reps is unambiguous.
+  const topSet = (sets, w) => sets.filter((s) => sameLoad(setW(s), w)).reduce((a, s) => (setR(s) > setR(a) ? s : a));
+  const ct = topSet(cur, W), pt = topSet(prev, P);
+  if (W > P && setR(ct) >= setR(pt)) return { dir: 'up', kind: 'heavier', cur: ct, prev: pt };
+  if (W < P && setR(ct) <= setR(pt)) return { dir: 'down', kind: 'lighter', cur: ct, prev: pt };
+  const bestE = (sets) => sets.reduce((best, s) => {
+    const e = setE1rm(setW(s), setR(s));
+    return e != null && (!best || e > best.e) ? { e, s } : best;
+  }, null);
+  const a = bestE(cur), b = bestE(prev);
+  if (!a || !b) return { dir: null, kind: 'unclear', reason: 'e1rm' };
+  const pct = (a.e - b.e) / b.e;
+  return { dir: pct > TREND_E1RM_BAND ? 'up' : pct < -TREND_E1RM_BAND ? 'down' : 'same', kind: 'e1rm', pct, cur: a.s, prev: b.s };
+}
+
+/**
+ * Recommendation from one session's working sets: { action: 'increase'|'decrease'|'keep', load (kg), next (kg|null) }
+ * or null (no working sets, or no weight logged).
+ */
+function progressionAdvice(sets, step = weightStep()) {
+  if (!sets.length) return null;
+  const weights = sets.map(setW).filter((w) => w > 0);
+  if (!weights.length) return null;
+  const reps = sets.map(setR);
+  const action = reps.some((r) => r >= PROG_REPS_JUMP) || reps.every((r) => r >= PROG_REPS_TOP) ? 'increase'
+    : reps.every((r) => r < PROG_REPS_MIN) ? 'decrease' : 'keep';
+  const load = Math.max(...weights);
+  let next = null;
+  if (action !== 'keep' && step > 0) {
+    const d = Math.round((toDisplayWeight(load) + (action === 'increase' ? step : -step)) * 100) / 100;
+    if (d > 0) next = toStoredWeight(d);
+  }
+  return { action, load, next };
+}

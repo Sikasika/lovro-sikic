@@ -22,6 +22,9 @@ Features:
 - History: list with duration, exercises, sets and volume; workout review with every set
   (types, not-done sets, notes, supersets, cardio) compared with the previous session of each
   exercise; edit any past workout, repeat, save as template
+- Progression: trend vs last time (↑ ↓ →) and next-weight recommendation (8–12 reps;
+  increase at 13+ or all 12+, decrease when all below 8; weight step in Settings), in
+  History and in each exercise of the live workout (with "Use" to fill empty weights)
 - Progress: body weight (quick entry for today, 7-day average, target progress, 30-day chart,
   edit/delete weigh-ins), streaks, this week vs last week, recent records, per-exercise chart
 - Insights: weekly observations and report, body-weight overview (latest, 7-day average,
