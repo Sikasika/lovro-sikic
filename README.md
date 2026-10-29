@@ -19,7 +19,9 @@ Features:
   starts only then), or start empty. Live session with a sticky bar (clock, progress,
   rest timer, Finish), large ✓ targets, "previous" column, planned targets, warm-up/working/drop
   sets, exercise notes, supersets. Finish shows a summary before saving.
-- History: workout details, edit any past workout, repeat, save as template
+- History: list with duration, exercises, sets and volume; workout review with every set
+  (types, not-done sets, notes, supersets, cardio) compared with the previous session of each
+  exercise; edit any past workout, repeat, save as template
 - Progress: body weight (quick entry for today, 7-day average, target progress, 30-day chart,
   edit/delete weigh-ins), streaks, this week vs last week, recent records, per-exercise chart
 - Insights: weekly observations and report, body-weight overview (latest, 7-day average,

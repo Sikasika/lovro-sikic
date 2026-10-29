@@ -625,3 +625,69 @@ function weightStrengthHalves(list, sessions, metric) {
   const ok = halves.every((h) => h.weight && h.weight.n >= WEIGHT_LINK_MIN_WEIGHINS && h.sessions >= WEIGHT_LINK_MIN_SESSIONS);
   return ok ? { early: halves[0], late: halves[1] } : null;
 }
+
+/* ---------- History: comparison with the previous session ----------
+
+   - Previous session of an exercise: the most recent saved workout that started
+     before this one (not this workout) with at least one completed working or drop
+     set of the same exercise (same exercise id, never a similar name or category).
+   - Warm-up sets are never compared. Working sets are matched with working sets and
+     drop sets with drop sets, in order (1st with 1st, ...). Sets without a partner in
+     the other session get no comparison; no sets are invented.
+   - A matched pair is compared only when both have reps and either both or neither
+     have a weight (weighted vs bodyweight sets are not compared).
+   - Cardio: totals of distance and time per session; pace/speed only from sets that
+     have both distance and time in both sessions.
+   - Only differences are shown; nothing is called better or worse.
+*/
+
+/** Completed working and drop sets of one exercise in a workout (all its entries, in order). */
+function comparableSets(w, exerciseId) {
+  const sets = (w?.entries || []).filter((e) => e.exerciseId === exerciseId).flatMap(completedSets);
+  return { working: sets.filter((s) => setType(s) === 'working'), drop: sets.filter((s) => setType(s) === 'drop') };
+}
+
+/** Most recent earlier workout with this exercise: { workout, sets } or null. */
+function previousExerciseSession(workouts, w, exerciseId) {
+  const t = new Date(w.start).getTime();
+  let best = null;
+  for (const x of workouts) {
+    if (x.id === w.id) continue;
+    const xt = new Date(x.start).getTime();
+    if (!(xt < t)) continue;
+    if (best && xt <= best.t) continue;
+    const sets = comparableSets(x, exerciseId);
+    if (sets.working.length || sets.drop.length) best = { t: xt, workout: x, sets };
+  }
+  return best && { workout: best.workout, sets: best.sets };
+}
+
+/** Change between two matched sets: { dw (kg or null), dr } or null when not comparable. */
+function setDelta(cur, prev) {
+  const cw = num(cur.weight) || 0, pw = num(prev.weight) || 0;
+  const cr = num(cur.reps), pr = num(prev.reps);
+  if (!(cr > 0) || !(pr > 0) || (cw > 0) !== (pw > 0)) return null;
+  return { dw: cw > 0 ? cw - pw : null, dr: cr - pr };
+}
+
+/** Pairs of matched sets (working with working, drop with drop, in order). */
+function matchSets(cur, prev) {
+  const pairs = [];
+  for (const k of ['working', 'drop']) {
+    const n = Math.min(cur[k].length, prev[k].length);
+    for (let i = 0; i < n; i++) pairs.push({ cur: cur[k][i], prev: prev[k][i], delta: setDelta(cur[k][i], prev[k][i]) });
+  }
+  return pairs;
+}
+
+/** Cardio totals of completed sets: { dist (m), time (s), bd, bt } (bd/bt: sets with both). */
+function cardioTotals(sets) {
+  const all = [...sets.working, ...sets.drop];
+  const both = all.filter((s) => num(s.distance) > 0 && num(s.duration) > 0);
+  return {
+    dist: all.reduce((a, s) => a + (num(s.distance) || 0), 0),
+    time: all.reduce((a, s) => a + (num(s.duration) || 0), 0),
+    bd: both.reduce((a, s) => a + num(s.distance), 0),
+    bt: both.reduce((a, s) => a + num(s.duration), 0)
+  };
+}

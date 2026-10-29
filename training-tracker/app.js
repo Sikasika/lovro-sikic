@@ -574,6 +574,10 @@ function openSetMenu(ctx, ei, si) {
 
 /* ----- History tab ----- */
 
+/** Distinct exercises with at least one completed set. */
+const workoutExerciseCount = (w) => new Set(w.entries.filter((e) => completedSets(e).length).map((e) => e.exerciseId)).size;
+const countWord = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 function renderHistory() {
   if (!state.workouts.length) {
     return `<div class="empty"><div class="big">📅</div>No workouts yet.<br>Finished workouts will show up here.</div>`;
@@ -587,47 +591,20 @@ function renderHistory() {
   return [...groups].map(([month, list]) => `
     <div class="section-title">${esc(month)}</div>
     <div class="card">
-      ${list.map((w) => `
-        <button class="list-item" data-action="open-workout" data-id="${w.id}">
+      ${list.map((w) => {
+        const vol = workoutVolume(w);
+        const meta = [workoutDurationText(w) === '–' ? 'No duration' : workoutDurationText(w), countWord(workoutExerciseCount(w), 'exercise'), countWord(workoutSetCount(w), 'set')];
+        if (vol > 0) meta.push(`${fmtWeight(vol)} ${unit()}`);
+        return `
+        <button type="button" class="list-item hist-item" data-action="open-workout" data-id="${esc(w.id)}">
           <div class="grow">
-            <div class="truncate">${esc(w.name)}</div>
-            <div class="sub">${fmtDate(w.start)} · ${workoutDurationText(w)} · ${workoutSetCount(w)} sets</div>
+            <div class="hist-top"><span class="truncate hist-name">${esc(w.name)}</span><span class="hist-date">${fmtDate(w.start)}</span></div>
+            <div class="sub">${esc(meta.join(' · '))}</div>
           </div>
           <span class="chev">›</span>
-        </button>`).join('')}
+        </button>`;
+      }).join('')}
     </div>`).join('');
-}
-
-/** Set lines for a saved exercise in workout details (cardio: distance, time, pace/speed). */
-function detailSets(e) {
-  const sets = completedSets(e);
-  if (!sets.length) return '<div class="detail-set muted">No completed sets</div>';
-  const ck = cardioKindOf(e.exerciseId) || (sets.some(hasCardioValues) ? 'other' : null);
-  const labels = setLabels(sets);
-  const lines = sets.map((s, j) => {
-    const d = num(s.distance) || 0, t = num(s.duration) || 0;
-    const text = ck && (d || t)
-      ? fmtCardio(d, t, ck)
-      : `${num(s.weight) ? `${fmtWeight(num(s.weight))} ${unit()} × ` : ''}${num(s.reps) ?? 0}${ck ? ' reps' : ''}`;
-    // Planned values (from a template) are shown only where they differ from what was done.
-    const plan = s.target ? setValueText(s.target, ck) : null;
-    const planNote = plan && plan !== setValueText(s, ck) ? ` <span class="muted">· plan ${esc(plan)}</span>` : '';
-    const label = setType(s) === 'working' ? `Set ${labels[j]}` : SET_TYPE_INFO[setType(s)].label;
-    return `<div class="detail-set type-${setType(s)}"><span class="muted">${label}</span><span>${esc(text)}${planNote}</span></div>`;
-  }).join('');
-  if (!ck || sets.length < 2) return lines;
-  // Totals across sets; pace/speed only from sets that have both distance and time.
-  const D = sets.reduce((a, s) => a + (num(s.distance) || 0), 0), T = sets.reduce((a, s) => a + (num(s.duration) || 0), 0);
-  const both = sets.filter((s) => num(s.distance) > 0 && num(s.duration) > 0);
-  const bd = both.reduce((a, s) => a + num(s.distance), 0), bt = both.reduce((a, s) => a + num(s.duration), 0);
-  const parts = [];
-  if (D) parts.push(fmtDistance(D, ck));
-  if (T) parts.push(fmtClock(T));
-  if (bd && bt) {
-    if (paceUnit(ck)) parts.push(`${fmtClock(paceSeconds(bt, bd, ck))} ${paceUnit(ck)}`);
-    if (CARDIO_KINDS[ck].speed) parts.push(`${fmtNum(speedValue(bd, bt))} ${speedUnit()}`);
-  }
-  return lines + (parts.length ? `<div class="detail-set"><span class="muted">Total</span><span><b>${esc(parts.join(' · '))}</b></span></div>` : '');
 }
 
 /** Duration of a saved workout, or – when it has no valid end time. */
@@ -636,37 +613,144 @@ function workoutDurationText(w) {
   return isNaN(ms) || ms < 0 ? '–' : fmtDuration(ms);
 }
 
+/** Value of one saved set: "60 kg × 10", "12 reps", "5.00 km · 25:00 · 5:00 /km". */
+function historySetText(s, ck) {
+  const d = num(s.distance) || 0, t = num(s.duration) || 0;
+  if (ck && (d || t)) return fmtCardio(d, t, ck);
+  const w = num(s.weight), r = num(s.reps);
+  if (!w && r == null) return '–';
+  return `${w ? `${fmtWeight(w)} ${unit()} × ` : ''}${r ?? 0}${w ? '' : ' reps'}`;
+}
+const shortSet = (s) => (num(s.weight) ? `${fmtWeight(num(s.weight))}×${num(s.reps) ?? 0}` : `${num(s.reps) ?? 0} reps`);
+const signedNum = (v, f = fmtNum) => `${v > 0 ? '+' : '−'}${f(Math.abs(v))}`;
+
+/** "+2.5 kg", "+1 rep", "+2.5 kg, −1 rep", "same" — never "better" or "worse". */
+function deltaText(dl) {
+  const parts = [];
+  if (dl.dw != null && Math.abs(dl.dw) > 1e-6) parts.push(`${signedNum(dl.dw, fmtWeight)} ${unit()}`);
+  if (dl.dr) parts.push(`${dl.dr > 0 ? '+' : '−'}${Math.abs(dl.dr)} rep${Math.abs(dl.dr) === 1 ? '' : 's'}`);
+  return parts.length ? parts.join(', ') : 'same';
+}
+
+/**
+ * Comparison of one exercise with its previous session (rules in calc.js):
+ * { line: html, perSet: Map(set → html) }.
+ */
+function exerciseComparison(w, exerciseId, ck) {
+  const perSet = new Map();
+  const cur = comparableSets(w, exerciseId);
+  const prev = previousExerciseSession(state.workouts, w, exerciseId);
+  const dateText = (x) => fmtDate(x.workout.start, { weekday: 'short', day: 'numeric', month: 'short', year: new Date(x.workout.start).getFullYear() === new Date(w.start).getFullYear() ? undefined : 'numeric' });
+  if (!prev) return { line: '<div class="hcmp muted">No previous session</div>', perSet };
+  if (!cur.working.length && !cur.drop.length) return { line: `<div class="hcmp muted">Previous ${esc(dateText(prev))}: only warm-ups logged this time, so nothing to compare</div>`, perSet };
+  if (ck) {
+    const a = cardioTotals(cur), b = cardioTotals(prev.sets);
+    const desc = (t) => [t.dist ? fmtDistance(t.dist, ck) : null, t.time ? fmtClock(t.time) : null].filter(Boolean).join(' · ') || 'no distance or time';
+    const parts = [];
+    if (a.dist && b.dist && Math.abs(a.dist - b.dist) > 0.5) parts.push(`${signedNum(a.dist - b.dist, (m) => fmtDistance(m, ck))}`);
+    if (a.time && b.time && Math.abs(a.time - b.time) >= 1) parts.push(`${a.time > b.time ? '+' : '−'}${fmtClock(Math.abs(a.time - b.time))}`);
+    if (a.bd && a.bt && b.bd && b.bt && paceUnit(ck)) {
+      const pa = paceSeconds(a.bt, a.bd, ck), pb = paceSeconds(b.bt, b.bd, ck);
+      if (Math.abs(pa - pb) >= 1) parts.push(`pace ${pa > pb ? '+' : '−'}${fmtClock(Math.abs(pa - pb))} ${paceUnit(ck)}`);
+    } else if (a.bd && a.bt && b.bd && b.bt && CARDIO_KINDS[ck]?.speed) {
+      const sa = speedValue(a.bd, a.bt), sb = speedValue(b.bd, b.bt);
+      if (Math.abs(sa - sb) >= 0.05) parts.push(`speed ${signedNum(sa - sb)} ${speedUnit()}`);
+    }
+    const comparable = (a.dist && b.dist) || (a.time && b.time);
+    return { line: `<div class="hcmp"><span class="muted">Previous ${esc(dateText(prev))}:</span> ${esc(desc(b))}${comparable ? ` · <b>${esc(parts.length ? parts.join(' · ') : 'same')}</b>` : ''}</div>`, perSet };
+  }
+  for (const pair of matchSets(cur, prev.sets)) {
+    perSet.set(pair.cur, pair.delta
+      ? `<span class="hcmp-d">${esc(deltaText(pair.delta))}</span><span class="hcmp-was">was ${esc(shortSet(pair.prev))}</span>`
+      : `<span class="hcmp-was">was ${esc(shortSet(pair.prev))}</span>`);
+  }
+  const list = [...prev.sets.working.map(shortSet), ...prev.sets.drop.map((x) => `D ${shortSet(x)}`)].join(', ');
+  const diff = cur.working.length - prev.sets.working.length;
+  const countNote = diff ? ` · ${countWord(Math.abs(diff), 'working set')} ${diff > 0 ? 'more' : 'fewer'} this time` : '';
+  return { line: `<div class="hcmp"><span class="muted">Previous ${esc(dateText(prev))}:</span> ${esc(list)}${esc(countNote)}</div>`, perSet };
+}
+
+/** Every saved set of an entry, completed or not, with its comparison. */
+function historySetRows(e, ck, perSet) {
+  const labels = setLabels(e.sets || []);
+  return (e.sets || []).map((s, j) => {
+    const t = setType(s);
+    const valid = isValidSet(s);
+    const status = valid ? '' : s.done === false ? 'Not done' : 'No values';
+    const plan = s.target ? setValueText(s.target, ck) : null;
+    const planNote = plan && plan !== setValueText(s, ck) ? `<span class="hset-plan">plan ${esc(plan)}</span>` : '';
+    const label = t === 'working' ? `Set ${labels[j]}` : t === 'warmup' ? 'Warm-up' : 'Drop set';
+    const cmp = valid && t !== 'warmup' ? perSet.get(s) : null;
+    return `
+      <div class="hset type-${t}${valid ? '' : ' undone'}">
+        <span class="hset-l">${label}</span>
+        <span class="hset-v">${esc(historySetText(s, ck))}${status ? ` <span class="hset-status">${status}</span>` : ''}${planNote}</span>
+        <span class="hset-c">${cmp || ''}</span>
+      </div>`;
+  }).join('');
+}
+
+/** Cardio totals line for an exercise with 2+ completed sets. */
+function cardioTotalLine(e, ck) {
+  const sets = completedSets(e);
+  if (!ck || sets.length < 2) return '';
+  const t = cardioTotals({ working: sets, drop: [] });
+  const parts = [];
+  if (t.dist) parts.push(fmtDistance(t.dist, ck));
+  if (t.time) parts.push(fmtClock(t.time));
+  if (t.bd && t.bt) {
+    if (paceUnit(ck)) parts.push(`${fmtClock(paceSeconds(t.bt, t.bd, ck))} ${paceUnit(ck)}`);
+    if (CARDIO_KINDS[ck].speed) parts.push(`${fmtNum(speedValue(t.bd, t.bt))} ${speedUnit()}`);
+  }
+  return parts.length ? `<div class="hset hset-total"><span class="hset-l">Total</span><span class="hset-v"><b>${esc(parts.join(' · '))}</b></span><span class="hset-c"></span></div>` : '';
+}
+
 function renderWorkoutDetail(w) {
   const volume = workoutVolume(w);
+  const done = workoutSetCount(w);
+  const notDone = w.entries.reduce((n, e) => n + (e.sets || []).filter((s) => !isValidSet(s)).length, 0);
+  const letters = supersetLetters(w.entries);
+  const seen = new Set();
+  const fromHistory = ui.tab === 'history';
+  const start = new Date(w.start);
   return `
     <div class="sheet-head">
-      <button class="link danger" data-action="delete-workout" data-id="${w.id}">Delete</button>
-      <h2>${esc(w.name)}</h2>
-      <button class="link" data-action="close-sheet">Done</button>
+      <button type="button" class="link" data-action="close-sheet">${fromHistory ? '‹ History' : 'Done'}</button>
+      <h2 class="truncate" style="max-width:55%">${esc(w.name)}</h2>
+      <button type="button" class="link" data-action="edit-workout" data-id="${esc(w.id)}" style="font-weight:600">Edit</button>
     </div>
-    <div class="sheet-body">
-      <div class="stats">
-        <div class="stat"><div class="num">${workoutDurationText(w)}</div><div class="lbl">Duration</div></div>
-        <div class="stat"><div class="num">${workoutSetCount(w)}</div><div class="lbl">Sets</div></div>
-        <div class="stat"><div class="num">${fmtWeight(volume)}</div><div class="lbl">Volume (${esc(unit())})</div></div>
+    <div class="sheet-body hist-detail">
+      <div class="hist-when">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${isNaN(start) ? '' : ` · ${start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`}</div>
+      <div class="card card-pad">
+        <div class="bw-metrics hist-metrics">
+          <div class="bw-metric"><div class="bw-metric-v">${workoutDurationText(w)}</div><div class="bw-metric-l">Duration</div></div>
+          <div class="bw-metric"><div class="bw-metric-v">${workoutExerciseCount(w)}</div><div class="bw-metric-l">Exercises</div></div>
+          <div class="bw-metric"><div class="bw-metric-v">${done}</div><div class="bw-metric-l">Sets done</div>${notDone ? `<div class="bw-metric-h">${countWord(notDone, 'set')} not done</div>` : ''}</div>
+          ${volume > 0 ? `<div class="bw-metric"><div class="bw-metric-v">${fmtWeight(volume)}</div><div class="bw-metric-l">Volume (${esc(unit())})</div><div class="bw-metric-h">Warm-ups excluded</div></div>` : ''}
+        </div>
       </div>
-      <div class="section-title">${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
-      ${(() => {
-        const letters = supersetLetters(w.entries);
-        return w.entries.map((e, i) => `
-        <div class="card${letters[i] ? ' superset' : ''}" style="margin-bottom:${letters[i] && letters[i + 1] === letters[i] ? 4 : 10}px;padding:6px 0">
-          ${letters[i] && letters[i - 1] !== letters[i] ? `<div class="detail-set"><span class="ss-badge">Superset ${letters[i]}</span></div>` : ''}
-          <div class="detail-set" style="font-weight:600;color:var(--accent)"><span>${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
+      ${w.entries.map((e, i) => {
+        const ck = cardioKindOf(e.exerciseId) || ((e.sets || []).some(hasCardioValues) ? 'other' : null);
+        const first = !seen.has(e.exerciseId);
+        seen.add(e.exerciseId);
+        const cmp = first ? exerciseComparison(w, e.exerciseId, ck) : { line: '<div class="hcmp muted">Compared above, with the earlier entry of this exercise</div>', perSet: exerciseComparison(w, e.exerciseId, ck).perSet };
+        const ss = letters[i], ssCont = ss && letters[i - 1] === ss, ssNext = ss && letters[i + 1] === ss;
+        return `
+        <section class="card hist-ex${ss ? ' superset' : ''}${ssCont ? ' ss-cont' : ''}${ssNext ? ' ss-next' : ''}">
+          ${ss && !ssCont ? `<span class="ss-badge">Superset ${ss}</span>` : ''}
+          <div class="hist-ex-head"><span class="hist-ex-name">${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
           ${e.note ? `<div class="detail-note">📝 ${esc(e.note)}</div>` : ''}
-          ${detailSets(e)}
-        </div>`).join('');
-      })()}
+          ${cmp.line}
+          <div class="hsets">${historySetRows(e, ck, cmp.perSet)}${cardioTotalLine(e, ck)}</div>
+        </section>`;
+      }).join('')}
       ${w.notes ? `<div class="section-title">Notes</div><div class="card card-pad">${esc(w.notes)}</div>` : ''}
-      <div class="btn-row"><button class="btn" data-action="edit-workout" data-id="${w.id}">Edit Workout</button></div>
+      <p class="tpl-hint">Each exercise is compared with the last earlier workout that included it. Warm-ups are not compared; working and drop sets are matched in order.</p>
       <div class="btn-row">
-        <button class="btn secondary" data-action="repeat" data-id="${w.id}">Repeat Workout</button>
-        <button class="btn secondary" data-action="save-history-template" data-id="${w.id}">Save as Template</button>
+        <button type="button" class="btn secondary" data-action="repeat" data-id="${esc(w.id)}">Repeat Workout</button>
+        <button type="button" class="btn secondary" data-action="save-history-template" data-id="${esc(w.id)}">Save as Template</button>
       </div>
+      <div class="btn-row"><button type="button" class="btn danger" data-action="delete-workout" data-id="${esc(w.id)}">Delete Workout</button></div>
     </div>
   `;
 }

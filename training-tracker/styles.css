@@ -1028,3 +1028,43 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .bw-obs li { position: relative; padding-left: 14px; font-size: 14px; line-height: 1.4; }
 .bw-obs li::before { content: ""; position: absolute; left: 0; top: 0.5em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .bw-ins-note { margin: 10px 0 0; }
+
+/* ==========================================================================
+   History (app.js): list entries and workout review
+   ========================================================================== */
+.hist-item .grow { display: flex; flex-direction: column; gap: 2px; }
+.hist-top { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.hist-name { flex: 1; min-width: 0; font-weight: 600; }
+.hist-date { flex: none; font-size: 14px; color: var(--muted); white-space: nowrap; }
+
+.hist-when { font-size: 14px; color: var(--muted); margin: 2px 4px 10px; }
+.hist-ex { position: relative; margin-top: 10px; padding: 10px 14px 8px; }
+.hist-ex.ss-cont { margin-top: 4px; }
+.hist-ex.superset::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--accent); }
+.hist-ex .ss-badge { margin: 0 0 6px; }
+.hist-ex-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.hist-ex-name { font-weight: 700; overflow-wrap: anywhere; }
+.hist-ex .detail-note { padding: 4px 0 0; }
+.hcmp { font-size: 13px; margin-top: 4px; line-height: 1.35; overflow-wrap: anywhere; }
+.hcmp.muted, .hcmp .muted { color: var(--muted); }
+.hsets { margin-top: 6px; }
+.hset {
+  display: grid;
+  grid-template-columns: 4.6em minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.hset + .hset { border-top: 0.5px solid var(--separator); }
+.hset-l { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.hset.type-warmup .hset-l { color: var(--heat-sports); }
+.hset.type-drop .hset-l { color: var(--accent); }
+.hset-v { min-width: 0; overflow-wrap: anywhere; }
+.hset-plan { display: block; font-size: 12px; color: var(--muted); }
+.hset-status { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--input); color: var(--muted); font-size: 12px; font-weight: 600; }
+.hset.undone .hset-v { color: var(--muted); }
+.hset-c { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.hcmp-d { font-size: 13px; font-weight: 600; }       /* neutral: no good/bad colour */
+.hcmp-was { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.hset-total { border-top: 0.5px solid var(--separator); }
