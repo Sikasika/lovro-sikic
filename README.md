@@ -22,6 +22,8 @@ Features:
 - History: workout details, edit any past workout, repeat, save as template
 - Progress: body weight (quick entry for today, 7-day average, target progress, 30-day chart,
   edit/delete weigh-ins), streaks, this week vs last week, recent records, per-exercise chart
+- Insights: weekly observations and report, body-weight overview (latest, 7-day average,
+  7- and 30-day change, target, 30-day chart, observations), strength, cardio, balance
 - Statistics: activity heatmap, summaries, frequency, performance charts and records,
   cardio (distance, pace, speed), body-weight chart, breakdowns by activity type, weekday and category
 - Settings: metric/imperial units, exercise library (rename, categories incl. Sports,

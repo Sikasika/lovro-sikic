@@ -43,7 +43,12 @@ function changeText(cur, prev, fmt = fmtNum, { recorded = true } = {}) {
 function renderInsights() {
   const { items, today } = completedWorkouts();
   if (!items.length) {
-    return `<div class="empty"><div class="big">💡</div>Insights appear once you have finished workouts.<br>They compare complete Monday–Sunday weeks, so log workouts in at least two different weeks to see changes.</div>`;
+    // Body weight insights don't depend on workouts (bodyweight.js).
+    const weight = renderWeightInsights([]);
+    const none = 'Insights appear once you have finished workouts.<br>They compare complete Monday–Sunday weeks, so log workouts in at least two different weeks to see changes.';
+    return weight
+      ? `${weight}<div class="card card-pad stats-empty" style="margin-top:12px">Workout insights appear once you have finished workouts. They compare complete Monday–Sunday weeks.</div>`
+      : `<div class="empty"><div class="big">💡</div>${none}</div>`;
   }
   const v = ui.ins.view;
   const views = [['overview', 'Week'], ['strength', 'Strength'], ['cardio', 'Cardio'], ['balance', 'Balance']];
@@ -51,7 +56,7 @@ function renderInsights() {
     <div class="segmented stats-seg" role="tablist" aria-label="Insights sections" style="margin-top:12px">
       ${views.map(([id, label]) => `<button role="tab" data-iaction="view" data-v="${id}" class="${v === id ? 'on' : ''}" aria-selected="${v === id}">${label}</button>`).join('')}
     </div>
-    ${v === 'overview' ? renderInsightCards(items, today) + renderWeekReport(items, today) : ''}
+    ${v === 'overview' ? renderInsightCards(items, today) + renderWeightInsights(items) + renderWeekReport(items, today) : ''}
     ${v === 'strength' ? renderStrengthInsights(items, today) : ''}
     ${v === 'cardio' ? renderCardioInsights(items, today) : ''}
     ${v === 'balance' ? renderBalanceInsights(items, today) : ''}`;
@@ -116,8 +121,6 @@ function insightCards(items, today) {
     cards.push({ icon: '🏅', title: `${recs.length} new record${recs.length === 1 ? '' : 's'} last week`,
       text: `${recs.slice(0, 2).map((ev) => `${exName(ev.exerciseId)}: ${RECORD_LABELS[ev.metric].toLowerCase()} ${recordValueText(ev.metric, ev.value, ev.exerciseId)}`).join('; ')}${recs.length > 2 ? '; …' : ''} (${lr}).` });
   }
-  const weight = weightInsightCard(L, P, lr, pr);
-  if (weight) cards.push(weight);
   const stale = notRecentCategories(items, today);
   if (stale.length) {
     cards.push({ icon: '🗓️', title: `Not logged in the last ${NOT_RECENT_DAYS} days`,

@@ -10,7 +10,8 @@
   Calculation rules (7-day average, change, target progress) are in calc.js.
 
   Shown on the Progress tab (entry, summary, target, 30-day chart, list/editor),
-  in Statistics (chart with ranges) and in Insights (one card, one report row).
+  in Statistics (chart with ranges) and in Insights (Body weight overview with a
+  30-day chart and observations, and one weekly report row).
   Loaded before app.js; everything here runs only when called.
 */
 
@@ -74,10 +75,13 @@ function deleteWeighIn(id) {
 /**
  * Weigh-ins (dots) and their 7-day average (line) on a time axis, with the target as a
  * dashed line when it is near the data. Labels show only real values.
+ * minLine: weigh-ins needed in the period for the average line. With fewer, `sparse` draws the
+ * readings as dots only (no trend line); without it a short message is shown instead.
  */
-function weightChart(list, { from = null, to = null, target = null, height = 170 } = {}) {
+function weightChart(list, { from = null, to = null, target = null, height = 170, minLine = 2, sparse = false } = {}) {
   const pts = list.filter((w) => (!from || w.day >= from) && (!to || w.day <= to));
-  if (pts.length < 2) {
+  const withLine = pts.length >= minLine;
+  if (!pts.length || (!withLine && !sparse)) {
     return `<div class="empty" style="padding:20px">${pts.length ? 'Only one weigh-in in this period. ' : 'No weigh-ins in this period. '}Log at least two to see a trend.</div>`;
   }
   const W = 320, H = height, padL = 40, padR = 10, padT = 12, padB = 20;
@@ -90,25 +94,25 @@ function weightChart(list, { from = null, to = null, target = null, height = 170
   if (showTarget) { lo = Math.min(lo, target); hi = Math.max(hi, target); }
   if (hi - lo < 1) { const m = (hi + lo) / 2; lo = m - 0.5; hi = m + 0.5; }
   const t0 = pts[0].day.getTime(), t1 = Math.max(pts[pts.length - 1].day.getTime(), t0 + 864e5);
-  const x = (day) => padL + ((day.getTime() - t0) / (t1 - t0)) * (W - padL - padR);
+  const x = (day) => (pts.length === 1 ? (padL + W - padR) / 2 : padL + ((day.getTime() - t0) / (t1 - t0)) * (W - padL - padR));
   const y = (kg) => padT + (1 - (kg - lo) / (hi - lo)) * (H - padT - padB);
   const line = avg.map((a, i) => `${i ? 'L' : 'M'}${x(a.day).toFixed(1)},${y(a.kg).toFixed(1)}`).join(' ');
   const minW = pts.reduce((a, w) => (w.kg < a.kg ? w : a)), maxW = pts.reduce((a, w) => (w.kg > a.kg ? w : a));
   const first = pts[0].day, last = pts[pts.length - 1].day;
   const withYear = first.getFullYear() !== last.getFullYear() || last.getFullYear() !== new Date().getFullYear();
   const dOpts = withYear ? { day: 'numeric', month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' };
-  const range = `${first.toLocaleDateString(undefined, dOpts)} – ${last.toLocaleDateString(undefined, dOpts)}`;
-  return `<svg class="chart bw-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Body weight, ${pts.length} weigh-ins, ${esc(range)}. Lowest ${esc(bwText(minW.kg))}, highest ${esc(bwText(maxW.kg))}, latest 7-day average ${esc(bwText(avg[avg.length - 1].kg))}.">
+  const range = pts.length === 1 ? first.toLocaleDateString(undefined, dOpts) : `${first.toLocaleDateString(undefined, dOpts)} – ${last.toLocaleDateString(undefined, dOpts)}`;
+  return `<svg class="chart bw-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Body weight, ${pts.length} weigh-in${pts.length === 1 ? '' : 's'}, ${esc(range)}. Lowest ${esc(bwText(minW.kg))}, highest ${esc(bwText(maxW.kg))}${withLine ? `, latest 7-day average ${esc(bwText(avg[avg.length - 1].kg))}` : ', too few for a trend line'}.">
     <line class="axis" x1="${padL}" y1="${H - padB}" x2="${W}" y2="${H - padB}"/>
     ${showTarget ? `<line class="target" x1="${padL}" y1="${y(target).toFixed(1)}" x2="${W - padR}" y2="${y(target).toFixed(1)}"/><text class="lbl target-lbl" x="${W - padR}" y="${(y(target) - 4).toFixed(1)}" text-anchor="end">Target ${fmtWeight(target)}</text>` : ''}
     <text class="lbl" x="0" y="${y(maxW.kg) + 3}">${fmtWeight(maxW.kg)}</text>
     ${minW.kg !== maxW.kg ? `<text class="lbl" x="0" y="${y(minW.kg) + 3}">${fmtWeight(minW.kg)}</text>` : ''}
     ${pts.map((w) => `<circle class="wdot" cx="${x(w.day).toFixed(1)}" cy="${y(w.kg).toFixed(1)}" r="2.6"/>`).join('')}
-    <path class="line" d="${line}"/>
-    <text class="lbl" x="${padL}" y="${H - 4}">${first.toLocaleDateString(undefined, dOpts)}</text>
-    <text class="lbl" x="${W - padR}" y="${H - 4}" text-anchor="end">${last.toLocaleDateString(undefined, dOpts)}</text>
+    ${withLine ? `<path class="line" d="${line}"/>` : ''}
+    ${pts.length > 1 ? `<text class="lbl" x="${padL}" y="${H - 4}">${first.toLocaleDateString(undefined, dOpts)}</text>
+    <text class="lbl" x="${W - padR}" y="${H - 4}" text-anchor="end">${last.toLocaleDateString(undefined, dOpts)}</text>` : `<text class="lbl" x="${x(first).toFixed(1)}" y="${H - 4}" text-anchor="middle">${first.toLocaleDateString(undefined, dOpts)}</text>`}
   </svg>
-  <div class="chart-caption">${pts.length} weigh-ins · ${esc(range)}<br>Dots: weigh-ins · line: 7-day average${validWeightKg(target) && !showTarget ? ` · target ${target < lo ? 'below' : 'above'} the chart` : ''}</div>`;
+  <div class="chart-caption">${pts.length} weigh-in${pts.length === 1 ? '' : 's'} · ${esc(range)}<br>${withLine ? 'Dots: weigh-ins · line: 7-day average' : `Dots: weigh-ins · too few for a trend line (needs ${minLine})`}${validWeightKg(target) && !showTarget ? ` · target ${target < lo ? 'below' : 'above'} the chart` : ''}</div>`;
 }
 
 /* ---------- Progress tab ---------- */
@@ -318,18 +322,99 @@ function renderWeightStats() {
 
 /* ---------- Insights ---------- */
 
-/** Insight card comparing the last two complete weeks' average weight (null if too few weigh-ins). */
-function weightInsightCard(L, P, lr, pr) {
+const bwShort = (d) => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const bwSpan = (a, b) => (sKey(a) === sKey(b) ? bwShort(a) : `${bwShort(a)}–${bwShort(b)}`);
+/** Changes that round to 0.0 in the display unit count as "about the same". */
+const bwSame = (kg) => Math.abs(toDisplayWeight(kg)) < 0.05;
+
+/**
+ * At most one observation linking the weight trend with one strength exercise over the same
+ * 30 days (rules in calc.js). Numbers side by side only; no conclusions about why.
+ */
+function weightStrengthObservation(list, items) {
+  if (!items?.length) return null;
+  const best = strengthExercises(items)
+    .map((x) => ({ x, h: weightStrengthHalves(list, x.sessions, x.metric) }))
+    .filter((c) => c.h)
+    .sort((a, b) => (b.h.early.sessions + b.h.late.sessions) - (a.h.early.sessions + a.h.late.sessions))[0];
+  if (!best) return null;
+  const { early, late } = best.h, m = best.x.metric;
+  const dw = late.weight.avg - early.weight.avg;
+  if (Math.abs(dw) < WEIGHT_LINK_MIN_KG) return null;
+  const rel = (late.best - early.best) / early.best;
+  const word = Math.abs(rel) <= 0.01 ? 'stayed about the same' : rel > 0 ? 'went up' : 'went down';
+  return `${bwSpan(early.from, early.to)} vs ${bwSpan(late.from, late.to)}: average weight ${bwText(early.weight.avg)} → ${bwText(late.weight.avg)} `
+    + `(${early.weight.n} and ${late.weight.n} weigh-ins), while your best ${metricName(m)} on ${exName(best.x.id)} ${word}: `
+    + `${metricValue(m, early.best)} → ${metricValue(m, late.best)} (${early.sessions} and ${late.sessions} sessions). `
+    + 'These are logged numbers side by side; they don\'t show why either changed.';
+}
+
+/** Short sentences about the weight trend; [] when there is too little data (the tiles explain). */
+function weightObservations(list, items, wk, mo) {
+  const out = [];
+  if (mo.change != null) {
+    const r = weightAverageRange(list);
+    if (r && r.max - r.min <= WEIGHT_STABLE_RANGE_KG) {
+      out.push(`Relatively stable over about 30 days: your 7-day average stayed between ${fmtWeight(r.min)} and ${bwText(r.max)} (${bwSpan(r.from, r.to)}).`);
+    } else {
+      out.push(bwSame(mo.change)
+        ? `Over about 30 days your 7-day average ended where it started (${bwText(mo.cur.avg)}), with changes in between.`
+        : `Over about 30 days your 7-day average changed by ${bwSigned(mo.change)} ${unit()}: ${bwText(mo.prev.avg)} (${bwSpan(mo.prev.from, mo.prev.to)}) → ${bwText(mo.cur.avg)} (${bwSpan(mo.cur.from, mo.cur.to)}).`);
+    }
+  } else if (wk.change != null) {
+    out.push(bwSame(wk.change)
+      ? `Your 7-day average (${bwText(wk.cur.avg)}) is about the same as in the 7 days before (${bwSpan(wk.prev.from, wk.prev.to)}).`
+      : `Your 7-day average is ${fmtWeight(Math.abs(wk.change))} ${unit()} ${wk.change < 0 ? 'lower' : 'higher'} than in the 7 days before: ${bwText(wk.prev.avg)} (${bwSpan(wk.prev.from, wk.prev.to)}) → ${bwText(wk.cur.avg)} (${bwSpan(wk.cur.from, wk.cur.to)}).`);
+  }
+  const link = weightStrengthObservation(list, items);
+  if (link) out.push(link);
+  return out;
+}
+
+/** Body weight overview for Insights: summary, target, 30-day chart, observations. '' without weigh-ins. */
+function renderWeightInsights(items = []) {
   const list = weighIns();
-  const a = weightMeanBetween(list, L.s, L.e), b = weightMeanBetween(list, P.s, P.e);
-  if (!a || !b || a.n < WEIGHT_COMPARE_MIN || b.n < WEIGHT_COMPARE_MIN) return null;
-  const d = a.avg - b.avg;
-  const same = Math.abs(toDisplayWeight(d)) < 0.05;
-  return {
-    icon: '⚖️',
-    title: same ? 'Body weight steady' : `Body weight ${d < 0 ? 'down' : 'up'} ${fmtWeight(Math.abs(d))} ${unit()}`,
-    text: `Average ${bwText(a.avg)} last week (${lr}, ${a.n} weigh-ins) vs ${bwText(b.avg)} the week before (${pr}, ${b.n}).`
-  };
+  if (!list.length) return '';
+  const u = esc(unit());
+  const wk = weightTrend(list, 7), mo = weightTrend(list, WEIGHT_LONG_DAYS);
+  const latest = wk.latest;
+  const today = sDay(new Date());
+  const ago = sDaysBetween(latest.day, today);
+  const goal = state.settings.weightGoal;
+  const prog = goal && validWeightKg(goal.targetKg) ? weightGoalProgress(goal, wk.cur.avg) : null;
+  const obs = weightObservations(list, items, wk, mo);
+  const tile = (value, label, hint) => `<div class="bw-metric"><div class="bw-metric-v">${value}</div><div class="bw-metric-l">${label}</div><div class="bw-metric-h">${hint}</div></div>`;
+  const prevCount = (t) => (t.prev ? t.prev.n : 0);
+  return `
+    <div class="section-row">
+      <div class="section-title">Body weight</div>
+      <button type="button" class="link small" data-action="bw-list">Weigh-ins ›</button>
+    </div>
+    <div class="card card-pad bw-ins">
+      <div class="bw-metrics">
+        ${tile(fmtWeight(latest.kg), `Latest (${u})`, esc(bwDayText(latest.date)))}
+        ${tile(fmtWeight(wk.cur.avg), `7-day avg (${u})`, `${plural(wk.cur.n, 'weigh-in')} · ${esc(bwSpan(wk.cur.from, wk.cur.to))}`)}
+        ${tile(wk.change == null ? '–' : bwSigned(wk.change), `7-day change (${u})`, wk.change == null
+          ? `Needs ${WEIGHT_COMPARE_MIN}+ weigh-ins in both weeks (have ${wk.cur.n} and ${prevCount(wk)})`
+          : `vs ${esc(bwSpan(wk.prev.from, wk.prev.to))}`)}
+        ${tile(mo.change == null ? '–' : bwSigned(mo.change), `30-day change (${u})`, mo.change == null
+          ? `Needs ${WEIGHT_COMPARE_MIN}+ weigh-ins around ${esc(bwShort(sAddDays(latest.day, -WEIGHT_LONG_DAYS)))} (have ${prevCount(mo)})`
+          : `vs ${esc(bwSpan(mo.prev.from, mo.prev.to))}`)}
+      </div>
+      ${prog ? `
+      <div class="bw-ins-target">
+        <div class="bw-goal-top"><span>Target <b>${esc(bwText(prog.target))}</b></span><span>${prog.reached ? 'Reached' : `${esc(bwText(prog.toGo))} ${wk.cur.avg > prog.target ? 'above' : 'below'}`}</span></div>
+        <span class="bw-bar" aria-hidden="true"><span style="width:${Math.round(prog.pct)}%"></span></span>
+        <div class="bw-metric-h">${Math.round(prog.pct)}% of the way from ${esc(bwText(prog.start))}, using the 7-day average</div>
+      </div>` : ''}
+      <div class="bw-ins-chart">
+        <div class="stats-chart-title">Last 30 days (${u})</div>
+        ${weightChart(list, { from: sAddDays(today, -29), target: goal?.targetKg, height: 112, minLine: WEIGHT_TREND_MIN_POINTS, sparse: true })}
+      </div>
+      ${obs.length ? `<ul class="bw-obs">${obs.map((o) => `<li>${esc(o)}</li>`).join('')}</ul>` : ''}
+      ${wk.change == null && mo.change == null ? `<p class="stats-note bw-ins-note">Not enough weigh-ins to compare periods yet, so no trend is reported. Comparisons use 7-day averages with at least ${WEIGHT_COMPARE_MIN} weigh-ins in each period.</p>` : ''}
+      ${ago > 7 ? `<p class="stats-note bw-ins-note">Your latest weigh-in was ${ago} days ago, so these figures describe the period up to ${esc(bwShort(latest.day))}.</p>` : ''}
+    </div>`;
 }
 
 /** Weight change without a percentage or up/down colour: neither direction is "good" in general. */

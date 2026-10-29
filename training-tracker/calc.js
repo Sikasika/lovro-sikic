@@ -81,6 +81,23 @@
    - Target progress: from the starting weight saved with the target to
      the target, using the current 7-day average; the direction (lose or
      gain) follows from start vs target. Progress is 0–100%.
+   - Insights body-weight overview (anchored on the latest weigh-in, L):
+     · 7-day change: 7-day average ending L vs the one ending L−7
+       (needs 2+ weigh-ins in each window).
+     · ~30-day change: 7-day average ending L vs the one ending L−30
+       (needs 2+ weigh-ins in each window).
+     · "Relatively stable": only when the 30-day comparison exists and the
+       7-day averages at every weigh-in in the 30 days up to L (each from
+       2+ weigh-ins) stay within 1 kg of each other. Too little data is
+       reported as such, never as "stable".
+     · Trend line: drawn only with 3+ weigh-ins in the chart period;
+       fewer are shown as readings only.
+     · Weight vs strength (at most one observation): the 30 days up to L are
+       split into an earlier half (L−29…L−15) and a later half (L−14…L).
+       Needs 3+ weigh-ins and 2+ sessions of the exercise in each half, and
+       a change in mean weight of at least 0.5 kg. Strength is the best
+       estimated 1RM (or heaviest weight) in each half; "about the same"
+       means within 1%. It reports the numbers side by side only.
    ========================================================= */
 
 const SCHEMA_VERSION = 2;
@@ -566,4 +583,45 @@ function weightGoalProgress(goal, current) {
   const reached = direction === 'lose' ? current <= target : current >= target;
   const pct = reached ? 100 : total ? Math.max(0, Math.min(100, (done / total) * 100)) : 100;
   return { direction, pct, toGo: reached ? 0 : Math.abs(current - target), reached, target, start };
+}
+
+/* ---------- Body weight: Insights rules ---------- */
+
+/** Trend line needs this many weigh-ins in the chart period. */
+const WEIGHT_TREND_MIN_POINTS = 3;
+/** 7-day averages within this range (kg) over ~30 days count as relatively stable. */
+const WEIGHT_STABLE_RANGE_KG = 1;
+const WEIGHT_LONG_DAYS = 30;
+/** Weight vs strength: minimum change in mean weight (kg), weigh-ins and sessions per half. */
+const WEIGHT_LINK_MIN_KG = 0.5;
+const WEIGHT_LINK_MIN_WEIGHINS = 3;
+const WEIGHT_LINK_MIN_SESSIONS = 2;
+
+/**
+ * Range of the 7-day averages at each weigh-in in the `days` up to the latest weigh-in
+ * (only averages from 2+ weigh-ins). { min, max, n, from, to } or null if none.
+ */
+function weightAverageRange(list, days = WEIGHT_LONG_DAYS) {
+  if (!list.length) return null;
+  const to = list[list.length - 1].day, from = sAddDays(to, -(days - 1));
+  const avgs = list.filter((w) => w.day >= from).map((w) => weightAverage(list, w.day)).filter((a) => a.n >= WEIGHT_COMPARE_MIN).map((a) => a.avg);
+  return avgs.length ? { min: Math.min(...avgs), max: Math.max(...avgs), n: avgs.length, from, to } : null;
+}
+
+/**
+ * Body weight and one strength exercise over the same 30 days up to the latest weigh-in, in two
+ * halves. Returns { early, late } with { from, to, weight: {avg, n}, best, sessions } or null when
+ * either dataset lacks the minimum data. `sessions` from exerciseSessions(), `metric` from
+ * progressionMetric() ('e1rm' or 'weight').
+ */
+function weightStrengthHalves(list, sessions, metric) {
+  if (!list.length || (metric !== 'e1rm' && metric !== 'weight')) return null;
+  const end = list[list.length - 1].day;
+  const halves = [[sAddDays(end, -29), sAddDays(end, -15)], [sAddDays(end, -14), end]].map(([from, to]) => {
+    const weight = weightMeanBetween(list, from, sAddDays(to, 1));
+    const ss = sessions.filter((x) => x.it.day >= from && x.it.day <= to && x.v[metric] != null);
+    return { from, to, weight, sessions: ss.length, best: ss.length ? Math.max(...ss.map((x) => x.v[metric])) : null };
+  });
+  const ok = halves.every((h) => h.weight && h.weight.n >= WEIGHT_LINK_MIN_WEIGHINS && h.sessions >= WEIGHT_LINK_MIN_SESSIONS);
+  return ok ? { early: halves[0], late: halves[1] } : null;
 }
