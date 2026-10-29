@@ -535,11 +535,15 @@ function runReadiness(a, weeks, raceDate) {
   const goalKm = goal.m / 1000;
   const ratio = longest > 0 ? goalKm / longest : Infinity;
   if (ratio <= 1.6) return null;
-  const r = Number.isFinite(ratio) ? `${Math.round(ratio * 10) / 10}×` : 'far beyond';
-  const shorter = a.distance === '10k' ? ' a 5K first,' : '';
+  // Says what the training covers (not a verdict on whether the event can be completed).
+  const times = `about ${Math.round(ratio * 10) / 10} times your longest planned run`;
+  const builds = `This plan builds up to runs of ${fmtKm(longest)}, not to the full ${goal.label} distance (${fmtKm(goalKm)}, ${times}).`;
+  const fullRun = weeks.some((w) => w.sessions.some((s) => s.type === 'time-trial'));
   const text = raceDate
-    ? `The race is ${goal.label} (${fmtKm(goalKm)}); the longest run in this plan is ${fmtKm(longest)}, so the race is ${r} longer. The plan doesn't make you race-ready for that distance. Consider${shorter} a later race, or plan on walk breaks during the race.`
-    : `This plan builds to runs of ${fmtKm(longest)}; ${goal.label} (${fmtKm(goalKm)}) is ${r} that. It won't fully prepare you for ${goal.label}: follow it with another plan${a.distance === '10k' ? ', or aim for a 5K first' : ''}, and use walk breaks when you try the full distance.`;
+    ? `${builds} Race day will be well beyond anything in your training. That gap doesn't decide on its own whether you can finish; it means your training won't have covered the distance. Consider ${a.distance === '10k' ? 'a 5K first, ' : ''}a later race date, or planning walk breaks during the race.`
+    : fullRun
+      ? `${builds} The optional ${goal.label} run in the last week is a first try at the full distance: take walk breaks whenever you need them, and stop if anything hurts. Another plan afterwards can build you up to it.`
+      : `${builds} Treat it as a step towards ${goal.label}: follow it with another plan${a.distance === '10k' ? ' (or aim for a 5K first)' : ''}, and plan walk breaks when you first try the full distance.`;
   return { goalKm, longest, ratio: Number.isFinite(ratio) ? Math.round(ratio * 100) / 100 : null, text };
 }
 

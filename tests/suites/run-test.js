@@ -126,9 +126,14 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
       const sum = r.plan.summary;
       const trainLongest = Math.max(...W.flatMap((w) => w.sessions.filter((x) => x.type !== 'race' && x.type !== 'time-trial').map((x) => x.targets.run.km)));
       const goalKm = RUN_GOALS[a.distance].m / 1000;
-      const warned = sum.warnings.find((m) => m.includes('×'));
+      const warned = sum.warnings.find((m) => m.includes('not to the full'));
       if (goalKm > 1.6 * trainLongest + 1e-9) {
-        if (!warned || !warned.includes(`${Math.round(goalKm / trainLongest * 10) / 10}×`) || !warned.includes(fmtKm(trainLongest)) || /guarantee|you will be ready|race-ready\./i.test(warned.replace("doesn't make you race-ready", ''))) bad(`${tag} readiness warning wrong: ${warned}`);
+        // Wording: what the training covers, with the numbers; never a verdict or a promise.
+        const fullRun = W.some((w) => w.sessions.some((x) => x.type === 'time-trial'));
+        if (!warned || !warned.includes(`This plan builds up to runs of ${fmtKm(trainLongest)}, not to the full ${RUN_GOALS[a.distance].label} distance (${fmtKm(goalKm)}, about ${Math.round(goalKm / trainLongest * 10) / 10} times your longest planned run).`) ||
+            /race-ready|fully prepare|guarantee|\bsafe|you will be ready|you will finish|you can complete|you can't (finish|complete)|won't be able|unable to/i.test(warned) ||
+            (a.eventDate && !warned.includes("doesn't decide on its own whether you can finish")) ||
+            (!a.eventDate && fullRun !== warned.includes('optional'))) bad(`${tag} readiness warning wrong: ${warned}`);
         if (sum.readiness?.ratio == null || Math.abs(sum.readiness.ratio - goalKm / trainLongest) > 0.01) bad(`${tag} readiness ratio`);
       } else if (warned) bad(`${tag} readiness warning without need`);
       let lastBuild = null, lastLong = null, peak = 0;
@@ -346,15 +351,25 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   check('R1 beginner 5K: week 1 = 5.5 km (4 + 1.5), not 6', `${R1.start}|${R1.weeks[0].km}|${R1.weeks[0].n}`, '5.5|5.5|3');
   check('R1 beginner 5K: gentle build ≤ 1.5 km/week, recovery week 4, no hard sessions', `${R1.weeks.map((w) => w.km).join(',')}|${R1.weeks[3].label}|${R1.weeks.every((w) => !w.hard)}`, (v) => { const [km, lab, h] = v.split('|'); const k = km.split(',').map(Number); return k.slice(1, 3).every((x, i) => x - k[i] <= 1.6) && lab === 'Recovery week' && h === 'true' && Math.max(...k) <= 10; });
   const R2 = await prof({ distance: '10k', eventDate: '2027-01-17', weeklyKm: 8, runsPerWeek: 2, longestKm: 4, days: [1, 3, 6], longDay: 6, experience: 'new', limitation: 'none' });
-  const r2w = R2.warnings.find((m) => m.includes('×'));
-  check('R2 beginner 10K race: readiness warning with distances and ratio, no promise', `${!!r2w}|${r2w?.includes('10K (10 km)')}|${r2w?.includes('longest run in this plan is 4.5 km')}|${r2w?.includes('2.2× longer')}|${r2w?.includes('a 5K first, a later race, or plan on walk breaks')}|${r2w?.includes("doesn't make you race-ready")}`, 'true|true|true|true|true|true');
+  const r2w = R2.warnings.find((m) => m.includes('not to the full'));
+  check('R2 beginner 10K race: warning says the plan builds to 4.5 km, not the full 10 km (2.2×), gap is not a verdict', r2w,
+    "This plan builds up to runs of 4.5 km, not to the full 10K distance (10 km, about 2.2 times your longest planned run). Race day will be well beyond anything in your training. That gap doesn't decide on its own whether you can finish; it means your training won't have covered the distance. Consider a 5K first, a later race date, or planning walk breaks during the race.");
   check('R2 beginner 10K race: taper and race on the day', `${R2.weeks[8].label}|${R2.weeks[9].label}|${R2.weeks[9].race}|${R2.weeks[9].km < R2.weeks[7].km}`, 'Taper|Race week|true|true');
   const R2b = await prof({ distance: '10k', weeks: 12, weeklyKm: 8, runsPerWeek: 2, longestKm: 4, days: [1, 3, 6], longDay: 6, experience: 'new', limitation: 'none' });
-  const r2bw = R2b.warnings.find((m) => m.includes('×'));
-  check('R2b beginner 10K no race: says it won\'t fully prepare, no 10K time trial', `${r2bw?.includes("won't fully prepare you for 10K")}|${r2bw?.includes('2.2×')}|${R2b.weeks.some((w) => w.tt)}`, 'true|true|false');
+  const r2bw = R2b.warnings.find((m) => m.includes('not to the full'));
+  check('R2b beginner 10K no race: a step towards 10K, no 10K time trial', `${r2bw}|${R2b.weeks.some((w) => w.tt)}`,
+    'This plan builds up to runs of 4.5 km, not to the full 10K distance (10 km, about 2.2 times your longest planned run). Treat it as a step towards 10K: follow it with another plan (or aim for a 5K first), and plan walk breaks when you first try the full distance.|false');
+  const r1w = R1.warnings.find((m) => m.includes('not to the full'));
+  const r1Long = Math.max(...R1.weeks.map((w) => w.long || 0));
+  check('R1 beginner 5K: warning only when 5 km > 1.6× the longest run; optional 5K run kept', `${!!r1w === 5 > 1.6 * r1Long}|${R1.weeks[R1.weeks.length - 1].tt}`, 'true|true');
+  // A beginner whose plan ends with the optional 5K run and still triggers the warning (0 km/week start)
+  const R1z = await prof({ distance: '5k', weeks: 8, weeklyKm: 0, runsPerWeek: 0, longestKm: 0, days: [1, 3, 5], longDay: 5, experience: 'new', limitation: 'none' });
+  const r1zw = R1z.warnings.find((m) => m.includes('not to the full')) || '';
+  check('R1z beginner from zero: optional 5K run explained as a first try at the full distance, with walk breaks and stopping if it hurts',
+    `${R1z.weeks[R1z.weeks.length - 1].tt}|${/^This plan builds up to runs of [\d.]+ km, not to the full 5K distance \(5 km, about [\d.]+ times your longest planned run\)\. The optional 5K run in the last week is a first try at the full distance: take walk breaks whenever you need them, and stop if anything hurts\. Another plan afterwards can build you up to it\.$/.test(r1zw)}`, 'true|true');
   const R3 = await prof({ distance: '5k', eventDate: '2027-01-03', recent: { distanceM: 5000, timeSec: 1560, ago: 'month' }, targetSec: 1500, weeklyKm: 20, runsPerWeek: 3, longestKm: 8, days: [1, 3, 5, 6], longDay: 6, experience: 'some', limitation: 'none' });
   check('R3 intermediate 5K: long run stays 8 km (40% of week 1), never drops in build weeks', `${R3.weeks[0].long}|${R3.weeks.filter((w) => w.label === 'Build').every((w) => w.long >= 8)}|${R3.weeks[3].label}|${R3.weeks[3].long < 8}`, '8|true|Recovery week|true');
-  check('R3 intermediate 5K: one hard session in build weeks 2+, race-week sharpener, goal as rough guide', `${R3.weeks.slice(1, 7).filter((w) => w.label === 'Build').every((w) => w.hard === 1)}|${R3.weeks[7].race}|${R3.goal.includes('as a rough guide')}|${R3.warnings.some((m) => m.includes('×'))}`, 'true|true|true|false');
+  check('R3 intermediate 5K: one hard session in build weeks 2+, race-week sharpener, goal as rough guide', `${R3.weeks.slice(1, 7).filter((w) => w.label === 'Build').every((w) => w.hard === 1)}|${R3.weeks[7].race}|${R3.goal.includes('as a rough guide')}|${R3.warnings.some((m) => m.includes('not to the full'))}`, 'true|true|true|false');
   const R4 = await prof({ distance: '10k', eventDate: '2027-01-31', recent: { distanceM: 10000, timeSec: 2400, ago: 'month' }, targetSec: 2340, weeklyKm: 60, runsPerWeek: 6, longestKm: 18, days: [0, 1, 2, 3, 4, 5, 6], longDay: 6, experience: 'experienced', limitation: 'none' });
   check('R4 experienced 10K: volume held ~60, long 18, recovery 4 & 8, 2-week taper, race', `${R4.weeks.filter((w) => w.label === 'Build').every((w) => w.km >= 58 && w.km <= 60.1)}|${R4.weeks[0].long}|${R4.weeks[3].label}|${R4.weeks[7].label}|${R4.weeks[10].label}|${R4.weeks[11].race}|${Math.max(...R4.weeks.map((w) => w.hard))}`, 'true|18|Recovery week|Recovery week|Taper|true|2');
   const R5 = await prof({ distance: '10k', weeks: 8, recent: { distanceM: 5000, timeSec: 1500, ago: 'month' }, targetSec: 3000, weeklyKm: 25, runsPerWeek: 4, longestKm: 10, days: [0, 2, 4, 6], longDay: 6, experience: 'some', limitation: 'injury', limitationNote: 'sore Achilles' });
@@ -368,7 +383,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.evaluate(() => { Object.assign(ui.runSetup, { hasEvent: false, weeks: '12', weekly: '8', runs: '2', longest: '4', experience: 'new', days: [1, 3, 6], longDay: '6' }); });
   await page.click('[data-action=rs-review]'); await wait();
   t = await sheet();
-  check('R review shows the readiness warning', t.includes("won't fully prepare you for 10K") && t.includes('2.2×'), true);
+  check('R review shows the readiness warning', t.includes('This plan builds up to runs of 4.5 km, not to the full 10K distance') && t.includes('about 2.2 times your longest planned run'), true);
   await page.click('#sheet [data-action=rs-back]'); await wait();
   await page.evaluate(() => { Object.assign(ui.runSetup, { weekly: '25', runs: '4', longest: '10', experience: 'some', limitation: 'injury', days: [0, 2, 4, 6] }); });
   await page.click('[data-action=rs-review]'); await wait();
