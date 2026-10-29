@@ -101,8 +101,22 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
                 if (p.t === 'set' && p.n > 1 && p.rest < SWIM_REST[as.level]) bad(`${tag} rest too short`);
               }
               if (s.type === 'threshold' && ['starter', 'developing'].includes(as.level)) bad(`${tag} threshold for ${as.level}`);
+              // Continuous swims: no 'rest whenever you need'; repeats-only sessions keep their own text
+              const hasCont = sw.parts.some((p) => p.t === 'cont');
+              if (s.type !== 'race' && hasCont && (!s.objective.includes('the continuous distance only counts if swum without stopping') || /rest at the wall|whenever you need|finish another time/i.test(`${s.objective} ${sw.effort}`))) bad(`${tag} continuous-swim text: ${s.objective} / ${sw.effort}`);
+              if (!hasCont && s.objective.includes('only counts if swum without stopping')) bad(`${tag} continuous-swim text on a repeats-only session`);
               if (s.type === 'threshold' && (lim === 'injury' || w.deload || w.taper)) bad(`${tag} threshold in recovery/taper/injury`);
             }
+            // The endurance swim reaches the week's longest allowed swim, unless that would take it past half the week
+            const endS = ss.find((s) => s.type === 'endurance' && s.targets.swim.parts.some((p) => p.t === 'cont'));
+            if (endS && !w.deload && !w.taper && lim !== 'injury' && as.level !== 'starter') {
+              const contLen = Math.max(...endS.targets.swim.parts.filter((p) => p.t === 'cont').map((p) => p.d)) * f;
+              const capped = w.maxPiece + SWIM_WU_MAX[as.level] + SWIM_CD_MAX[as.level] + L > w.m * 0.5 - L;
+              if (contLen + 0.5 < w.maxPiece && !capped) bad(`${tag} w${w.week} endurance swim ${contLen} short of ${w.maxPiece}`);
+              const share = (w.m * SWIM_WEIGHT.endurance) / ss.reduce((n, x) => n + (SWIM_WEIGHT[x.type] || 1), 0);
+              if (endS.targets.swim.totalM > Math.max(w.m * 0.5, share) + 2 * L) bad(`${tag} w${w.week} endurance session ${endS.targets.swim.totalM} over half the week ${w.m}`);
+            }
+            if (Math.abs(w.longest - Math.max(0, ...ss.filter((s) => s.type !== 'race').map((s) => s.targets.swim.longest)) * f) > 1) bad(`${tag} week longest wrong`);
             // Ability: the longest swim grows one step per build week, never past the goal, never with an injury
             if (!w.deload && !w.taper && i > 0 && lim !== 'injury') buildN++;
             const allowed = Math.max(L, Math.floor((contM + step * buildN) / L + 1e-9) * L);
@@ -133,6 +147,9 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
           if (as.plan.target && longest + 0.01 < as.plan.target) {
             if (!warned || !warned.includes(`about ${Math.round((as.plan.target / longest) * 10) / 10} times your longest planned swim`)) bad(`${tag} readiness warning wrong: ${warned}`);
           } else if (warned) bad(`${tag} readiness warning without need`);
+          const injEvent = r.plan.summary.warnings.includes('With a current injury, check with your physiotherapist or doctor before swimming the event itself.');
+          if (injEvent !== (lim === 'injury' && !!a.eventDate)) bad(`${tag} injured-event note ${injEvent}`);
+          if (lim === 'injury' && !r.plan.summary.warnings.some((m) => m.startsWith('Only use this plan'))) bad(`${tag} injury warning missing`);
           // Paces only when supported
           if (!!r.plan.summary.paces !== (cont >= 200)) bad(`${tag} paces presence`);
         }
@@ -227,6 +244,42 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
   check('E swim advanced (12 km/week): volume kept, threshold sets most weeks', `${sw3.level}|${sw3.peak <= 12600}|${sw3.threshold >= 10}`, 'advanced|true|true');
   const sw5 = await swimShape({ goal: 'fitness', weeks: 6, poolLen: 25, poolUnit: 'yd', contDist: 500, sessionsPerWeek: 3, weeklyDist: 4000, days: [0, 2, 4], experience: 'some', limitation: 'injury' });
   check('E swim injury: ~75%, longest swim not increased, no threshold, Steady weeks', `${sw5.start <= 4000 * 0.9144 * 0.75 + 60}|${sw5.longest <= 500 * 0.9144 + 1}|${sw5.threshold}|${sw5.labels.join(',')}`, 'true|true|0|Steady,Recovery week,Lighter week');
+  /* J. Swim review fixes: endurance sizing, continuous-swim instructions, injured events */
+  const swimWeeks = (a) => ev(([a]) => { const as = assessSwim(a, todayKey()); const p = createPlan(PLAN_LIBRARY.get('swim'), a, as.schedule.start).plan;
+    const contOf = (s) => Math.max(0, ...s.targets.swim.parts.filter((x) => x.t === 'cont').map((x) => x.d)) * as.pool.f;
+    return { warnings: p.summary.warnings, weeks: p.weeks.map((w) => { const e = w.sessions.find((s) => s.type === 'endurance');
+      return { build: !w.deload && !w.taper, lim: w.maxPiece, longest: w.longest, m: w.m, endCont: e ? contOf(e) : null, endTotal: e ? e.targets.swim.totalM : null,
+        texts: w.sessions.map((s) => ({ type: s.type, cont: s.targets.swim.parts.some((x) => x.t === 'cont'), objective: s.objective, effort: s.targets.swim.effort })) }; }) }; }, [a]);
+  const I800 = { goal: 'event', targetDist: 1500, eventDate: '2027-01-17', poolLen: 25, poolUnit: 'm', contDist: 800, pace100: 120, sessionsPerWeek: 3, weeklyDist: 5000, days: [0, 2, 4, 6], experience: 'some' };
+  let sj = await swimWeeks(I800);
+  const jb = sj.weeks.filter((w) => w.build && w.endCont != null);
+  check('J 800 → 1,500 m: every build week\'s endurance swim reaches that week\'s longest swim (800 … 1,400 m)', jb.map((w) => `${w.endCont}/${w.lim}`).join(','), (v) => jb.length >= 6 && jb.every((w) => w.endCont === w.lim) && v.endsWith('1400/1400'));
+  check('J 800 → 1,500 m: endurance session within half the week', jb.every((w) => w.endTotal <= w.m * 0.5), true);
+  const jw = sj.warnings.find((m) => m.includes('not to the full')) || '';
+  const jLongest = Math.max(...sj.weeks.map((w) => w.longest));
+  check('J 800 → 1,500 m: warning gives the longest continuous swim (1,400 m), not a session total (1,875 m)', `${jLongest}|${jw.includes('swims of 1,400 m without stopping')}|${jw.includes('about 1.1 times')}|${Math.max(...sj.weeks.map((w) => w.endTotal || 0))}`, '1400|true|true|1875');
+  // Low weekly distance: the half-week cap wins, and the warning doesn't claim the longer swim
+  sj = await swimWeeks({ goal: 'event', targetDist: 2000, eventDate: '2027-01-17', poolLen: 25, poolUnit: 'm', contDist: 1200, sessionsPerWeek: 3, weeklyDist: 2400, days: [0, 2, 4], experience: 'some' });
+  const cw = sj.warnings.find((m) => m.includes('not to the full')) || '';
+  const cLongest = Math.max(...sj.weeks.map((w) => w.longest));
+  check('J capped: endurance session kept to half the week even when the limit doesn\'t fit', sj.weeks.filter((w) => w.build && w.endTotal).every((w) => w.endTotal <= w.m * 0.5 + 25) && sj.weeks.some((w) => w.build && w.endCont < w.lim), true);
+  check('J capped: warning reports the swim actually planned, not the allowed limit', `${cw.includes(`swims of ${cLongest.toLocaleString('en-GB')} m without stopping`)}|${cLongest < Math.max(...sj.weeks.map((w) => w.lim))}`, 'true|true');
+  // Instructions
+  const allTexts = (sj.weeks.concat((await swimWeeks(I800)).weeks)).flatMap((w) => w.texts);
+  const contTexts = allTexts.filter((x) => x.cont);
+  check('J continuous swims: "without stopping … only counts if swum without stopping", no "rest whenever you need"', `${contTexts.length > 5}|${contTexts.every((x) => x.objective.includes('Swim the continuous part without stopping if you can. If you have to stop, rest briefly, finish the distance and note where you stopped: the continuous distance only counts if swum without stopping.'))}|${contTexts.some((x) => /whenever you need|rest at the wall/i.test(x.objective + x.effort))}`, 'true|true|false');
+  const st1 = await swimWeeks({ goal: 'fitness', weeks: 8, poolLen: 25, poolUnit: 'm', contDist: 25, days: [1, 4], experience: 'new' });
+  const stT = st1.weeks.flatMap((w) => w.texts);
+  const stEnd = stT.find((x) => x.type === 'endurance' && x.objective !== 'Recovery week: keep it relaxed.');
+  check('J starter (repeats only): no continuous-swim text; existing instructions kept', `${stT.some((x) => x.cont || x.objective.includes('only counts'))}|${stEnd.objective}|${stEnd.effort}`, 'false|Builds the distance you can swim. Easy and relaxed; rest at the wall whenever you need.|Easy: relaxed, about 3–4 out of 10. Rest longer whenever you need to.');
+  const dTest = (await swimWeeks({ goal: 'distance', targetDist: 400, weeks: 8, poolLen: 25, poolUnit: 'm', contDist: 200, sessionsPerWeek: 2, weeklyDist: 1200, days: [0, 2, 4], experience: 'some' })).weeks.flatMap((w) => w.texts).find((x) => x.type === 'test');
+  check('J optional goal-distance swim: continuous-swim text, no "finish another time"', `${dTest.objective.startsWith('Your goal distance in one go')}|${dTest.objective.includes('only counts if swum without stopping')}|${/another time/.test(dTest.objective)}`, 'true|true|false');
+  // Injured swimmers and events
+  const INJ_EV = 'With a current injury, check with your physiotherapist or doctor before swimming the event itself.';
+  const ie = (await swimWeeks({ goal: 'event', targetDist: 1500, eventDate: '2027-01-17', poolLen: 25, poolUnit: 'm', contDist: 500, sessionsPerWeek: 3, weeklyDist: 3000, days: [0, 2, 4], experience: 'some', limitation: 'injury' })).warnings;
+  check('J injured + event: physio/doctor note added; injury and event-readiness warnings kept', `${ie.includes(INJ_EV)}|${ie.some((m) => m.startsWith('Only use this plan'))}|${ie.some((m) => m.includes('not to the full 1,500 m'))}`, 'true|true|true');
+  const inf = (await swimWeeks({ goal: 'fitness', weeks: 8, poolLen: 25, poolUnit: 'm', contDist: 500, sessionsPerWeek: 3, weeklyDist: 3000, days: [0, 2, 4], experience: 'some', limitation: 'injury' })).warnings;
+  check('J injured without an event / event without injury: no physio note', `${inf.includes(INJ_EV)}|${(await swimWeeks(I800)).warnings.includes(INJ_EV)}`, 'false|false');
   const rideShape = (a) => ev(([a]) => { const as = assessRide(a, todayKey()); const W = createPlan(PLAN_LIBRARY.get('bike'), a, as.schedule.start).plan.weeks;
     return { start: W[0].min, peak: Math.max(...W.map((w) => w.min)), long: Math.max(...W.flatMap((w) => w.sessions.filter((s) => s.type === 'long').map((s) => s.targets.ride.min))), intervals: W.reduce((n, w) => n + w.sessions.filter((s) => s.type === 'intervals').length, 0), power: W.some((w) => w.sessions.some((s) => s.targets.ride.power)), labels: [...new Set(W.map((w) => w.label))] }; }, [a]);
   const rd1 = await rideShape({ goal: 'fitness', weeks: 8, days: [1, 3, 6], experience: 'new', weeklyMin: 0, ridesPerWeek: 0, longestMin: 0 });
@@ -283,12 +336,15 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
   await page.click('[data-action=finish]'); await wait();
   t = await sheet();
   check('F swim finish: distance vs plan, time, pace per 100 incl. rests, done', t.includes(`Distance ${Math.round(plannedM * 0.95).toLocaleString()} m of`) && t.includes('Time 35:00') && t.includes('per 100 m including rests') && t.includes('Done'), true);
+  check('F swim finish: says the distance includes rests and doesn\'t show a non-stop swim', t.includes("Total distance, rests included; this doesn't show whether the continuous swim was done without stopping."), true);
   await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
   check('F swim session completed', await ev((id) => sessionStatus(findPlan(state, id), 'w1-1').status, SID), 'completed');
   await go(page, 'history'); await wait();
   await page.click('[data-action=open-workout] >> nth=0'); await wait();
   t = await sheet();
   check('F History: plan context and planned vs actual for the swim', t.includes('Week 1') && /planned vs actual/i.test(t) && t.includes('Distance'), true);
+  check('F History: total-distance note on the swim', t.includes("Total distance, rests included; this doesn't show whether the continuous swim was done without stopping."), true);
+  check('F History swim fits the screen', await noOverflow(), true);
   await ev(() => closeSheet());
 
   /* G. Cycling plan: alongside a strength program, conflicts, log, planned vs actual */

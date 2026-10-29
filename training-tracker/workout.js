@@ -682,6 +682,7 @@ function plannedVsActualHtml(w) {
         <span class="grow"><span class="pva-name">${main}</span><span class="pva-sub">${sub}</span></span>
         <span class="pva-status">${st}</span>
       </div>
+      ${swim ? '<div class="pva-sub pva-note" style="margin-top:6px">Total distance, rests included; this doesn\'t show whether the continuous swim was done without stopping.</div>' : ''}
       ${pva.others.length ? `<div class="pva-sub" style="margin-top:6px">Also logged: ${esc(pva.others.map(exName).join(', '))}</div>` : ''}
     </div>`;
   }

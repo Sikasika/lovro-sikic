@@ -41,6 +41,8 @@ const SWIM_PEAK = { starter: 1500, developing: 3000, intermediate: 6000, advance
 const SWIM_MIN_SESSION = { starter: 200, developing: 400, intermediate: 800, advanced: 1500 };
 const SWIM_STEP = { starter: 25, developing: 50, intermediate: 100, advanced: 200 };
 const SWIM_EST_PACE = { starter: 210, developing: 165, intermediate: 130, advanced: 105 }; // s/100 m, length estimates only
+const SWIM_WU_MAX = { starter: 50, developing: 100, intermediate: 300, advanced: 400 }; // metres
+const SWIM_CD_MAX = { starter: 50, developing: 100, intermediate: 200, advanced: 200 };
 const SWIM_REST = { starter: 45, developing: 30, intermediate: 20, advanced: 15 }; // seconds between repeats
 const SWIM_DRILLS = {
   starter: ['Kick with a board', 'Easy swim, focus on relaxed breathing'],
@@ -55,6 +57,10 @@ const SWIM_EFFORT = {
   threshold: 'Strong: about 7–8 out of 10, controlled; the same pace on every repeat.',
   race: 'Event effort: start steady, settle into a rhythm, finish strong.'
 };
+
+/** Sessions with a continuous swim: continuous distance is not the same as total distance with rests. */
+const SWIM_CONT_TEXT = 'Swim the continuous part without stopping if you can. If you have to stop, rest briefly, finish the distance and note where you stopped: the continuous distance only counts if swum without stopping.';
+const SWIM_EFFORT_CONT = { easy: 'Easy: relaxed, about 3–4 out of 10.' };
 
 const swimLevel = (cont, exp) => (cont < 100 ? 'starter' : cont < 400 ? 'developing' : cont < 1500 || exp === 'new' ? 'intermediate' : 'advanced');
 
@@ -195,8 +201,8 @@ function swimSession(as, type, v, maxPiece, k) {
   const maxLens = Math.max(1, Math.floor(maxPiece / L + 1e-9));
   const rest = SWIM_REST[level];
   const parts = [];
-  const wuL = Math.min(lens(v * 0.15), lens({ starter: 50, developing: 100, intermediate: 300, advanced: 400 }[level]), maxLens);
-  const cdL = Math.min(lens(v * 0.1), lens({ starter: 50, developing: 100, intermediate: 200, advanced: 200 }[level]), maxLens);
+  const wuL = Math.min(lens(v * 0.15), lens(SWIM_WU_MAX[level]), maxLens);
+  const cdL = Math.min(lens(v * 0.1), lens(SWIM_CD_MAX[level]), maxLens);
   let left = lens(v) - wuL - cdL;
   if (type !== 'race') parts.push({ t: 'wu', d: units(wuL) });
   if (type === 'technique' || (type === 'threshold' && level !== 'starter')) {
@@ -240,6 +246,11 @@ const swimLongestPiece = (parts) => Math.max(0, ...parts.filter((p) => p.t !== '
 
 function makeSwim(as, type, parts, title, objective, effortKey) {
   const f = as.pool.f;
+  // A session with a continuous swim gets its own instructions; repeats-only sessions keep theirs.
+  const hasCont = parts.some((p) => p.t === 'cont');
+  if (hasCont && type !== 'race') {
+    objective = `${objective.startsWith('Recovery week') ? 'Recovery week: keep it relaxed. ' : type === 'test' ? 'Your goal distance in one go, at an even, steady effort. ' : type === 'endurance' ? 'Builds the distance you can swim, easy and relaxed. ' : ''}${SWIM_CONT_TEXT}`;
+  }
   const totalU = swimPartsUnits(parts);
   const restSec = parts.reduce((n, p) => n + (p.rest && p.n > 1 ? (p.n - 1) * p.rest : 0), 0);
   const pace = as.paces ? (as.paces.easy[0] + as.paces.easy[1]) / 2 : SWIM_EST_PACE[as.level] * f; // s per 100 pool units
@@ -248,7 +259,7 @@ function makeSwim(as, type, parts, title, objective, effortKey) {
     targets: { swim: {
       pool: { len: as.pool.len, unit: as.pool.unit }, total: totalU, totalM: Math.round(totalU * f),
       estMin: Math.max(5, Math.round(((totalU / 100) * pace + restSec) / 60)), parts,
-      effort: SWIM_EFFORT[effortKey], effortKey, pace: as.paces ? as.paces[effortKey] || null : null, paces: as.paces,
+      effort: (hasCont && SWIM_EFFORT_CONT[effortKey]) || SWIM_EFFORT[effortKey], effortKey, pace: as.paces ? as.paces[effortKey] || null : null, paces: as.paces,
       longest: swimLongestPiece(parts)
     } }
   };
@@ -313,7 +324,7 @@ function buildSwimWeeks(a, startDate) {
       // sessions share what is left, so the week stays at its planned distance.
       const build = !recovery && !inTaper;
       const endV = build && !injury && level !== 'starter' && types.includes('endurance')
-        ? Math.max((W * SWIM_WEIGHT.endurance) / types.reduce((n, t) => n + SWIM_WEIGHT[t], 0), Math.min(maxPiece * 1.2, W * 0.5)) : null;
+        ? Math.max((W * SWIM_WEIGHT.endurance) / types.reduce((n, t) => n + SWIM_WEIGHT[t], 0), Math.min(maxPiece + SWIM_WU_MAX[level] + SWIM_CD_MAX[level] + L, W * 0.5)) : null;
       const otherWeight = types.reduce((n, t) => n + (endV != null && t === 'endurance' ? 0 : SWIM_WEIGHT[t]), 0);
       const totalWeight = types.reduce((n, t) => n + SWIM_WEIGHT[t], 0);
       const lastWeek = !eventDate && i === N;
@@ -322,7 +333,7 @@ function buildSwimWeeks(a, startDate) {
         let type = types[j % types.length];
         if (tryFull && type === 'endurance') {
           const len = Math.round(L / as.pool.f);
-          sessions.push({ date: s.date, ...makeSwim(as, 'test', [{ t: 'wu', d: 4 * len }, { t: 'cont', d: Math.round(target / as.pool.f), effort: 'steady' }, { t: 'cd', d: 2 * len }], `Continuous ${swimText(target, a)} (optional)`, 'Your goal distance in one go, at an even, steady effort. Rest and finish another time if you need to.', 'steady') });
+          sessions.push({ date: s.date, ...makeSwim(as, 'test', [{ t: 'wu', d: 4 * len }, { t: 'cont', d: Math.round(target / as.pool.f), effort: 'steady' }, { t: 'cd', d: 2 * len }], `Continuous ${swimText(target, a)} (optional)`, 'Your goal distance in one go, at an even, steady effort.', 'steady') });
           return;
         }
         const v = endV != null ? (type === 'endurance' ? endV : ((W - endV) * SWIM_WEIGHT[type]) / otherWeight) : (W * SWIM_WEIGHT[type]) / totalWeight;
@@ -334,18 +345,24 @@ function buildSwimWeeks(a, startDate) {
     // at a time from the biggest non-event session.
     const sumM = () => sessions.reduce((n, s) => n + s.targets.swim.totalM, 0);
     for (let g = 0; g < 80 && sumM() > W + L * 0.5; g++) {
-      // Trim from the biggest session: a repeat, else a drill, else a length off a continuous swim, else warm-up/cool-down.
+      // Trim from the biggest session: a repeat, else a drill, else a length off a repeat swim or the
+      // warm-up/cool-down. A continuous swim is shortened only when nothing else in the week can be,
+      // so the endurance swim keeps the week's longest distance whenever possible.
       const cands = sessions.filter((s) => s.type !== 'race' && s.type !== 'test').sort((x, y) => y.targets.swim.totalM - x.targets.swim.totalM);
       let done = false;
-      for (const cand of cands) {
-        const parts = cand.targets.swim.parts.map((p) => ({ ...p }));
-        const len = Math.round(L / as.pool.f);
-        const rep = parts.filter((x) => x.t === 'set' && x.n > 1).sort((x, y) => y.d - x.d)[0] || parts.find((x) => x.t === 'drill' && x.n > 2);
-        const shortenable = parts.filter((x) => (x.t === 'cont' || x.t === 'set') && x.d >= 3 * len).sort((x, y) => y.d - x.d)[0] || parts.find((x) => (x.t === 'wu' || x.t === 'cd') && x.d >= 2 * len);
-        if (rep) rep.n -= 1; else if (shortenable) shortenable.d -= len; else continue;
-        Object.assign(cand, makeSwim(as, cand.type, parts, cand.title, cand.objective, cand.targets.swim.effortKey));
-        done = true;
-        break;
+      for (const allowCont of [false, true]) {
+        for (const cand of cands) {
+          const parts = cand.targets.swim.parts.map((p) => ({ ...p }));
+          const len = Math.round(L / as.pool.f);
+          const rep = parts.filter((x) => x.t === 'set' && x.n > 1).sort((x, y) => y.d - x.d)[0] || parts.find((x) => x.t === 'drill' && x.n > 2);
+          const shortenable = parts.filter((x) => x.t === 'set' && x.d >= 3 * len).sort((x, y) => y.d - x.d)[0] || parts.find((x) => (x.t === 'wu' || x.t === 'cd') && x.d >= 2 * len)
+            || (allowCont ? parts.find((x) => x.t === 'cont' && x.d >= 3 * len) : null);
+          if (rep) rep.n -= 1; else if (shortenable) shortenable.d -= len; else continue;
+          Object.assign(cand, makeSwim(as, cand.type, parts, cand.title, cand.objective, cand.targets.swim.effortKey));
+          done = true;
+          break;
+        }
+        if (done) break;
       }
       if (!done) break;
     }
@@ -358,6 +375,9 @@ function buildSwimWeeks(a, startDate) {
       label: eventWeek ? 'Event week' : inTaper ? (eventDate ? 'Taper' : 'Lighter week') : recovery ? 'Recovery week' : injury ? 'Steady' : 'Build',
       ...(recovery ? { deload: true } : {}), ...(inTaper ? { taper: true } : {}),
       m: totalM, maxPiece: Math.round(maxPiece),
+      // The longest single swim actually in this week's sessions (it can be below the limit when
+      // a session is capped at half the week): this is what readiness is judged on.
+      longest: Math.round(Math.max(0, ...sessions.filter((s) => s.type !== 'race').map((s) => s.targets.swim.longest)) * as.pool.f),
       sessions: sessions.map((s, j) => ({ key: `w${i}-${j + 1}`, ...s }))
     });
   }
@@ -380,7 +400,7 @@ function swimSummary(a, startDate) {
     }
   }
   return { sport: 'swim', goal: as.goal, target: as.plan?.target ?? null, level: as.level, paces: as.paces, base: as.base, plan: as.plan, pool: as.pool,
-    notes: as.notes, warnings: [...(readiness ? [readiness.text] : []), ...as.warnings], assumptions: as.assumptions, eventDate: as.schedule?.eventDate || null, readiness };
+    notes: as.notes, warnings: [...(readiness ? [readiness.text] : []), ...as.warnings, ...(as.base.injury && as.schedule?.eventDate ? ['With a current injury, check with your physiotherapist or doctor before swimming the event itself.'] : [])], assumptions: as.assumptions, eventDate: as.schedule?.eventDate || null, readiness };
 }
 
 registerPlanDefinition({ id: 'swim', version: 1, kind: 'swim', name: 'Swim plan', build: buildSwimWeeks, summarize: swimSummary });
