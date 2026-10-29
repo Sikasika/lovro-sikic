@@ -29,11 +29,18 @@
   - Week 1 starts at the current weekly distance (new runners: short run/walk sessions).
     Weekly distance then rises only while it is below a sensible peak for the distance and
     experience, by at most 10% or 1.5 km a week, and never above 1.6 × the starting volume.
-    Runners already above that peak keep their volume. A current injury: no increase.
+    Runners already above that peak keep their volume. Beginners: week 1 is at most 1.5 km more
+    than now, with fewer, short run/walk sessions if needed (runs are added as distance grows).
+  - A current injury: about 75% of current volume held steady ("Steady" weeks), the long run
+    at most 75% of the current longest, no hard sessions, strides or time trials. Injured and
+    not running at all: no plan (get cleared to run first).
   - Every 4th week is a recovery week (about 75% of the previous week, no hard session).
-  - The long run is about 30–45% of the week (depending on runs per week), grows by at most
+  - The long run is about 30–50% of the week (depending on runs per week), grows by at most
     1.5 km a week and is capped for the distance and experience (or at the runner's current
-    longest run, up to a third of the week, if that is more).
+    longest run, up to a third of the week, if that is more). It may stay at the runner's
+    current longest run (up to 40% of the week) instead of dropping to the usual share.
+  - Readiness: when the goal distance is more than 1.6× the plan's longest training run, the
+    plan says so with the numbers (it never promises race readiness).
   - Quality sessions (intervals at 5K/10K pace, tempo) only for runners with some experience
     and at least 12 km a week (two only from 30 km), at most 8% (intervals) or 10% (tempo, but never under 10 minutes) of the week, never on the day after the long run
     when that can be avoided. New runners get strides instead; a current injury gets neither.
@@ -97,7 +104,7 @@ function assessRun(a, startDate, today = todayKey()) {
     assumptions.push('Running experience not given: the plan is built for a beginner. Choose your experience for a better fit.');
   }
   const injury = a?.limitation === 'injury';
-  if (injury) warnings.push('You have a current injury. Check with a physiotherapist or doctor before starting. The plan keeps your current volume and has no hard sessions; stop and get advice if pain returns.');
+  if (injury) warnings.push('Only use this plan if you can run without pain or have been cleared to run by a physiotherapist or doctor. It keeps you at about 75% of your current running, with no hard sessions, strides or time trials. Stop and get advice if pain returns.');
   else if (a?.limitation === 'niggle') warnings.push('With a niggle, keep every run easy until it has settled, and skip hard sessions if it hurts. The plan increases volume slowly.');
 
   // Current training (partial answers are filled in conservatively and labelled)
@@ -201,9 +208,17 @@ function assessRun(a, startDate, today = todayKey()) {
   if (injury) planRuns = Math.min(days.length, Math.max(2, Math.min(runs, cap)));
   if (runs > planRuns && days.length < runs) notes.push(`You currently run ${runs} times a week but chose ${days.length} days: the plan fits your usual volume into ${planRuns} runs.`);
   const beginner = weeklyKm < 6;
-  let startKm = beginner ? roundHalf(Math.max(weeklyKm, planRuns * 2)) : roundHalf(weeklyKm);
+  // Week 1 never asks for more than 1.5 km above the current week (beginners get shorter or
+  // fewer run/walk sessions instead). With an injury: about 75% of the current week.
+  let startKm = injury ? roundHalf(weeklyKm * 0.75) : beginner ? roundHalf(Math.min(Math.max(weeklyKm, planRuns * 2), weeklyKm + 1.5)) : roundHalf(weeklyKm);
+  if (injury && weeklyKm * 0.75 < 2) problems.push(`You have a current injury and ${weeklyKm ? 'run very little at the moment' : 'aren\'t running at the moment'}. Get cleared to run by a physiotherapist or doctor first; a running plan can't safely be built from here.`);
+  if (!injury && beginner && startKm < planRuns * 1.5) {
+    const n = Math.max(1, Math.floor(startKm / 1));
+    notes.push(`Week 1 is ${fmtKm(Math.max(startKm, 1))} (at most 1.5 km more than you run now), so it has ${n === 1 ? 'one short run/walk' : `${Math.min(n, planRuns)} short run/walk sessions`}; the plan adds runs as the weekly distance grows.`);
+  }
   // Long-run limit: the table value, or what the runner already does (up to a third of the week).
-  const longCap = goal ? Math.max(RUN_LONG_CAP[a.distance][exp], roundHalf(Math.min(longestKm, startKm / 3))) : 0;
+  let longCap = goal ? Math.max(RUN_LONG_CAP[a.distance][exp], roundHalf(Math.min(longestKm, startKm / 3))) : 0;
+  if (injury && longestKm > 0) longCap = Math.min(longCap, Math.max(1, Math.floor(longestKm * 0.75 * 2) / 2)); // at most 75% of the current longest
   // No single run longer than the long-run limit: with few runs a week that caps the week.
   const hardLikely = !injury && exp !== 'new' && planRuns >= 3 && weeklyKm >= 12;
   // In week 1 no run is longer than the long run, which starts at most 1 km above the current longest.
@@ -214,9 +229,13 @@ function assessRun(a, startDate, today = todayKey()) {
     startKm = roundHalf(fits);
   }
   const peakFor = goal ? RUN_PEAK[a.distance][exp] : startKm;
-  let peakKm = injury ? startKm : Math.max(startKm, Math.min(peakFor, startKm * 1.6));
+  // Peak: up to 1.6× the starting week (for beginners, 1.6× three short runs), reached only
+  // through the weekly limits above; injured runners stay level.
+  const growthBase = beginner ? Math.max(startKm, planRuns * 2) : startKm;
+  let peakKm = injury ? startKm : Math.max(startKm, Math.min(peakFor, growthBase * 1.6));
   if (startKm >= peakFor && !injury) notes.push(`Your current ${fmtKm(startKm)} a week is already plenty for a ${goal ? goal.label : 'race'}: the plan keeps your volume and focuses on quality and recovery.`);
   if (beginner && !injury) notes.push('You are starting from little or no regular running: the early runs are short, and walking breaks are fine whenever you need them.');
+  if (injury) notes.push(`Weeks are “Steady”: about ${fmtKm(startKm)} a week (75% of your current ${fmtKm(weeklyKm)}), long runs at most ${fmtKm(longCap)}. Set up a new plan once you are running pain-free.`);
 
   // Goal check (never used for paces)
   let goalCheck = { status: 'none' };
@@ -238,7 +257,7 @@ function assessRun(a, startDate, today = todayKey()) {
         const pct = (x) => `${Math.round(x * 1000) / 10}%`;
         goalCheck = {
           status, neededPct: needed, realisticPct: realistic,
-          text: `Your estimated current ${goal.label} time is ${fmtT(cur)}. ${fmtT(a.targetSec)} is ${pct(needed)} faster; in ${weeksN} weeks about ${pct(realistic)} is a realistic gain for your experience. ${{
+          text: `Your estimated current ${goal.label} time is ${fmtT(cur)}. ${fmtT(a.targetSec)} is ${pct(needed)} faster; as a rough guide, about ${pct(realistic)} is a realistic gain in ${weeksN} weeks for your experience (individual progress varies a lot). ${{
             realistic: 'The target looks realistic.',
             ambitious: 'The target is ambitious: possible with consistent training and a good day.',
             unlikely: 'The target is unlikely in this time. Consider a slower target or a later race; training harder than your current fitness allows raises the risk of injury.'
@@ -248,7 +267,6 @@ function assessRun(a, startDate, today = todayKey()) {
       }
     }
   }
-  if (a?.distance === '10k' && beginner && schedule && schedule.weeks < 10) warnings.push(`A 10K in ${schedule.weeks} weeks from little regular running is a big step. Consider a 5K first, or a later race; walk breaks in the race are fine.`);
 
   return {
     ok: !problems.length, problems, warnings, assumptions, notes, fitness, goal: goalCheck,
@@ -380,19 +398,27 @@ function buildRunWeeks(a, startDate) {
     if (!inTaper && !recovery) { lastBuild = km; peakReached = Math.max(peakReached, km); }
     km = roundHalf(km);
 
-    // Long run
-    const share = R >= 4 ? 0.3 : R === 3 ? 0.36 : 0.5; // with 2 runs both are about the same length
-    let long = Math.min(km * share, longCap);
-    if (lastLong == null) long = Math.min(long, Math.max(as.base.longestKm, 2) + 1);
-    else if (!recovery && !inTaper) long = Math.min(long, lastLong + 1.5);
-    else long = Math.min(long, (peakLong || lastLong) * (recovery ? 0.8 : 0.75));
-    long = Math.max(roundHalf(long), 1.5);
+    // Runs this week: beginners on very little distance get fewer, short run/walk sessions
+    // (at least 1 km each) instead of more distance.
+    const minRun = as.plan.startKm < 6 ? 1 : km < 8 ? 1.5 : 2;
+    const longMin = Math.min(1.5, km);
+    const Rw = Math.max(1, Math.min(R, Math.floor((km - longMin) / minRun + 1e-9) + 1));
+
+    // Long run: the usual share of the week, but it may stay at the current longest run
+    // (up to 40% of the week) rather than drop; grows by at most 1.5 km a week.
+    const share = Rw >= 4 ? 0.3 : Rw === 3 ? 0.36 : Rw === 2 ? 0.5 : 1;
+    const keepLong = (base) => Math.min(base, 0.4 * km);
+    let long;
+    if (lastLong == null) long = Math.min(longCap, Math.max(km * share, keepLong(as.base.longestKm)), Math.max(as.base.longestKm, 2) + 1);
+    else if (!recovery && !inTaper) long = Math.min(longCap, lastLong + 1.5, Math.max(km * share, keepLong(lastLong)));
+    else long = Math.min(km * share, longCap, (peakLong || lastLong) * (recovery ? 0.8 : 0.75));
+    long = Math.max(roundHalf(long), Math.min(1.5, km));
     if (!recovery && !inTaper) { lastLong = long; peakLong = Math.max(peakLong, long); }
 
     // Quality sessions this week
     let q = 0;
-    if (!injury && R >= 3 && !recovery && !raceWeek && !(raceDate == null && i === N)) {
-      if (exp === 'experienced') q = R >= 5 && i > 1 && !inTaper ? 2 : 1;
+    if (!injury && Rw >= 3 && !recovery && !raceWeek && !(raceDate == null && i === N)) {
+      if (exp === 'experienced') q = Rw >= 5 && i > 1 && !inTaper ? 2 : 1;
       else if (exp === 'some' && i > 1) q = 1;
       // Hard sessions need a base under them: 12+ km a week for one, 30+ for two.
       q = Math.min(q, km >= 30 ? 2 : km >= 12 ? 1 : 0);
@@ -401,7 +427,7 @@ function buildRunWeeks(a, startDate) {
     const sharpener = raceWeek && exp !== 'new' && !injury && peakReached >= 15; // only with a base for it
 
     // Days of this week
-    const plan = runDays(as.plan.days, R, a.longDay, raceWeek ? (sharpener ? 1 : 0) : q);
+    const plan = runDays(as.plan.days, Rw, a.longDay, raceWeek ? (sharpener ? 1 : 0) : q);
     const dateOf = (d) => sKey(sAddDays(startD, (i - 1) * 7 + ((d - startDow + 7) % 7)));
     let slots = plan.days.map((d) => ({ d, date: dateOf(d) })).sort((x, y) => (x.date < y.date ? -1 : 1));
     const sessions = [];
@@ -411,10 +437,10 @@ function buildRunWeeks(a, startDate) {
       const sharpDay = sharpener ? slots.find((s) => sDaysBetween(sFromKey(s.date), sFromKey(raceDate)) >= 3 && plan.quality.includes(s.d)) || slots.find((s) => sDaysBetween(sFromKey(s.date), sFromKey(raceDate)) >= 3) : null;
       // Only as many easy runs as the week's remaining distance allows (at least one, 2 km or more).
       const spare = Math.max(0, km - RUN_GOALS[a.distance].m / 1000);
-      const maxEasy = Math.max(1, Math.floor(spare / 2));
+      const maxEasy = Math.max(1, Math.floor(spare / (as.plan.startKm < 6 ? 1.5 : 2)));
       const keep = new Set([sharpDay, ...slots.filter((x) => x !== sharpDay).slice(-maxEasy)].filter(Boolean));
       slots = slots.filter((x) => keep.has(x));
-      const easyKm = roundHalf(Math.max(2, Math.min(5, spare / Math.max(1, slots.length - (sharpDay ? 1 : 0)))));
+      const easyKm = roundHalf(Math.max(as.plan.startKm < 6 ? 1 : 2, Math.min(5, spare / Math.max(1, slots.length - (sharpDay ? 1 : 0)))));
       for (const s of slots) {
         if (s === sharpDay) {
           const n = a.distance === '10k' ? 4 : 5, m = a.distance === '10k' ? 400 : 200;
@@ -430,7 +456,7 @@ function buildRunWeeks(a, startDate) {
       const testWeek = !raceDate && i === N && !injury && RUN_GOALS[a.distance].m / 1000 <= Math.max(peakLong, 1) * 1.6 + 0.5;
       const gentleTest = testWeek && (exp === 'new' || lastBuild < 15);
       // With little volume or only 2 runs, the time trial takes the long run's place.
-      const ttOnLong = testWeek && (gentleTest || R <= 2);
+      const ttOnLong = testWeek && (gentleTest || Rw <= 2);
       const ttKm = testWeek ? RUN_GOALS[a.distance].m / 1000 + (gentleTest ? 0 : 3) : 0;
       let qIdx = 0;
       const qualitySessions = [];
@@ -438,13 +464,13 @@ function buildRunWeeks(a, startDate) {
         const kinds = a.distance === '5k' ? ['i5k', 'tempo'] : ['tempo', 'i10k'];
         const kind = kinds[quality % 2];
         // Sized against the distance this week can actually reach (runs are capped at the long run).
-        const reachable = Math.min(km, long * R);
+        const reachable = Math.min(km, long * Rw);
         qualitySessions.push(qualitySession(as, kind, Math.floor(quality / 2), reachable, inTaper));
         quality++;
       }
       const qKm = qualitySessions.reduce((n, s) => n + s.targets.run.km, 0);
-      const easyCount = R - 1 - q - (testWeek && !ttOnLong ? 1 : 0);
-      const minEasy = km < 8 ? 1.5 : 2;
+      const easyCount = Rw - 1 - q - (testWeek && !ttOnLong ? 1 : 0);
+      const minEasy = minRun;
       let easyKm = easyCount > 0 ? roundHalf(Math.max(minEasy, (km - (ttOnLong ? 0 : long) - qKm - ttKm) / easyCount)) : 0;
       easyKm = Math.min(easyKm, Math.max(long, minEasy));
       let stridesUsed = false;
@@ -471,7 +497,7 @@ function buildRunWeeks(a, startDate) {
     // Rounding must not push a week above its planned distance: trim easy runs by 0.5 km.
     const sum = () => sessions.reduce((n, x) => n + x.targets.run.km, 0);
     for (let guard = 0; guard < 20 && sum() > km + 0.1; guard++) {
-      const e = sessions.filter((x) => x.type === 'easy' && x.targets.run.parts[0].km > (km < 8 ? 1.5 : 2)).sort((x, y) => y.targets.run.parts[0].km - x.targets.run.parts[0].km)[0];
+      const e = sessions.filter((x) => x.type === 'easy' && x.targets.run.parts[0].km > (as.plan.startKm < 6 ? 1 : km < 8 ? 1.5 : 2)).sort((x, y) => y.targets.run.parts[0].km - x.targets.run.parts[0].km)[0];
       if (!e) break;
       const parts = e.targets.run.parts.map((p, k) => (k === 0 ? { ...p, km: p.km - 0.5 } : p));
       const strides = parts.some((p) => p.t === 'strides');
@@ -482,7 +508,7 @@ function buildRunWeeks(a, startDate) {
     if (!inTaper && !recovery) { lastBuild = Math.min(lastBuild, total); peakReached = Math.max(as.plan.startKm, ...weeks.filter((x) => !x.deload && !x.taper).map((x) => x.km), total); }
     weeks.push({
       week: i,
-      label: raceWeek ? 'Race week' : inTaper ? (raceDate ? 'Taper' : sessions.some((x) => x.type === 'time-trial') ? 'Lighter week · time trial' : 'Lighter week') : recovery ? 'Recovery week' : 'Build',
+      label: raceWeek ? 'Race week' : inTaper ? (raceDate ? 'Taper' : sessions.some((x) => x.type === 'time-trial') ? 'Lighter week · time trial' : 'Lighter week') : recovery ? 'Recovery week' : injury ? 'Steady' : 'Build',
       ...(recovery ? { deload: true } : {}),
       ...(inTaper ? { taper: true } : {}),
       km: total,
@@ -495,7 +521,26 @@ function buildRunWeeks(a, startDate) {
 /** What is saved with the plan besides the weeks: the assessment it was built from. */
 function runSummary(a, startDate) {
   const as = assessRun(a, startDate);
-  return { goal: a.distance, fitness: as.fitness, goalCheck: as.goal, base: as.base, plan: as.plan, notes: as.notes, warnings: as.warnings, assumptions: as.assumptions, raceDate: as.schedule?.raceDate || null };
+  const ready = as.ok ? runReadiness(a, buildRunWeeks(a, startDate), as.schedule?.raceDate) : null;
+  return { goal: a.distance, fitness: as.fitness, goalCheck: as.goal, base: as.base, plan: as.plan, notes: as.notes, warnings: [...(ready ? [ready.text] : []), ...as.warnings], assumptions: as.assumptions, raceDate: as.schedule?.raceDate || null, readiness: ready };
+}
+
+/**
+ * The goal distance against the plan's longest training run (races and time trials aside).
+ * More than 1.6× apart: a warning with the numbers and what to consider. Never a promise.
+ */
+function runReadiness(a, weeks, raceDate) {
+  const goal = RUN_GOALS[a.distance];
+  const longest = Math.max(0, ...weeks.flatMap((w) => w.sessions.filter((s) => s.type !== 'race' && s.type !== 'time-trial').map((s) => s.targets.run.km)));
+  const goalKm = goal.m / 1000;
+  const ratio = longest > 0 ? goalKm / longest : Infinity;
+  if (ratio <= 1.6) return null;
+  const r = Number.isFinite(ratio) ? `${Math.round(ratio * 10) / 10}×` : 'far beyond';
+  const shorter = a.distance === '10k' ? ' a 5K first,' : '';
+  const text = raceDate
+    ? `The race is ${goal.label} (${fmtKm(goalKm)}); the longest run in this plan is ${fmtKm(longest)}, so the race is ${r} longer. The plan doesn't make you race-ready for that distance. Consider${shorter} a later race, or plan on walk breaks during the race.`
+    : `This plan builds to runs of ${fmtKm(longest)}; ${goal.label} (${fmtKm(goalKm)}) is ${r} that. It won't fully prepare you for ${goal.label}: follow it with another plan${a.distance === '10k' ? ', or aim for a 5K first' : ''}, and use walk breaks when you try the full distance.`;
+  return { goalKm, longest, ratio: Number.isFinite(ratio) ? Math.round(ratio * 100) / 100 : null, text };
 }
 
 Object.entries(RUN_GOALS).forEach(([id, g]) => registerPlanDefinition({

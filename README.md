@@ -32,9 +32,13 @@ Features:
   days, experience, injuries and (optional) measured max heart rate. Partial answers are
   filled in conservatively and labelled. Fitness is estimated from the recent result (Riegel);
   training paces come from it, never from the target, which is only checked (realistic /
-  ambitious / unlikely, with the numbers). No result: an effort-based plan. Schedules build
-  from current volume (≤10% or 1.5 km a week, recovery every 4th week, long run 30–50% of
-  the week and capped, hard sessions only with enough base), taper and race on the race day,
+  ambitious / unlikely, with the numbers, as a rough guide). No result: an effort-based plan.
+  Injury: about 75% of current volume held steady, long runs ≤ 75% of the current longest,
+  no hard sessions, strides or time trials, only if running is pain-free or cleared. A warning
+  with the numbers when the goal distance is more than 1.6× the plan's longest run. Schedules build
+  from current volume (week 1 at most 1.5 km above now; then ≤10% or 1.5 km a week, recovery
+  every 4th week, long run 30–50% of the week and capped, kept at the current longest run up
+  to 40%, hard sessions only with enough base), taper and race on the race day,
   or end with an optional time trial. Full review before starting; runs open the logger with
   their steps, paces/effort and a distance/time target; planned vs actual distance, time and
   (easy runs) pace. One running plan alongside one strength program; same-day warnings

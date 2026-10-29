@@ -67,6 +67,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   check('B race before the start', await probs({ ...base, eventDate: '2026-11-01' }), (v) => v.includes('before the start date'));
   check('B result faster than the world record', await probs({ ...base, recent: { distanceM: 5000, timeSec: 600, ago: 'month' } }), (v) => v.includes('faster than the world record'));
   check('B result distance without a time', await probs({ ...base, recent: { distanceM: 5000, timeSec: null, ago: 'month' } }), (v) => v.includes('Enter the time'));
+  check('B injured and not running: refused with advice', await probs({ ...base, weeklyKm: 0, runsPerWeek: 0, longestKm: 0, limitation: 'injury' }), (v) => v.includes('Get cleared to run'));
   check('B start date in the past', await probs({ ...base }, '2026-11-01'), (v) => v.includes('in the past'));
   as = await assess({ ...base, eventDate: '2027-06-20' });
   check('B race more than 16 weeks away: plan starts 16 weeks before, explained', `${as.ok}|${as.schedule.weeks}|${as.schedule.start}|${as.notes.some((n) => n.includes('more than 16 weeks away'))}`, 'true|16|2027-03-01|true');
@@ -82,6 +83,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   check('C unlikely target also listed as a warning', (await assess({ ...base, recent: { distanceM: 5000, timeSec: 1650, ago: 'month' }, targetSec: 1440 })).warnings.some((w) => w.includes('unlikely')), true);
   check('C target already reached', (await goal(1700)).status, 'reached');
   check('C target without a result: can\'t be checked (no pretend precision)', (await assess({ ...base, targetSec: 1500 })).goal.status, 'unknown');
+  check('C feasibility described as a rough guide, not a prediction', `${(await goal(1575)).text.includes('as a rough guide')}|${(await goal(1575)).text.includes('individual progress varies')}`, 'true|true');
   check('C current injury lowers the realistic gain', (await goal(1590, { limitation: 'injury' })).status, (v) => v !== 'realistic');
 
   /* D. Schedules across many runners: the rules hold */
@@ -90,14 +92,20 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
     const seen = new Set();
     const bad = (m) => { const kind = m.replace(/[\d.]+/g, '#'); if (!seen.has(kind) && out.bad.length < 12) { seen.add(kind); out.bad.push(m); } };
     const profiles = [];
-    for (const distance of ['5k', '10k']) for (const experience of ['new', 'some', 'experienced']) for (const weeklyKm of [0, 8, 15, 30, 60]) for (const limitation of ['none', 'injury'])
+    for (const distance of ['5k', '10k']) for (const experience of ['new', 'some', 'experienced']) for (const weeklyKm of [0, 1, 4, 8, 15, 30, 60]) for (const limitation of ['none', 'injury'])
       for (const days of [[1, 3, 6], [0, 2, 4, 6], [0, 1, 2, 3, 4, 5, 6], [5, 6]]) for (const ev of [null, '2027-01-17', '2026-12-13']) for (const recent of [null, { distanceM: 5000, timeSec: 1500, ago: 'month' }]) {
         const runsPerWeek = weeklyKm === 0 ? 0 : Math.max(2, Math.min(6, Math.round(weeklyKm / 7)));
         const longestKm = weeklyKm === 0 ? 0 : Math.min(weeklyKm, Math.max(Math.round(weeklyKm * 0.35), Math.ceil(weeklyKm / runsPerWeek)));
         profiles.push({ distance, experience, weeklyKm, runsPerWeek, longestKm, limitation, days, longDay: 6, eventDate: ev, weeks: ev ? null : 8, recent });
       }
+    out.refusedInjured = 0;
     for (const a of profiles) {
       const as = assessRun(a, '2026-11-10');
+      // Injured and not running: no plan, with the reason (fix 1).
+      if (a.limitation === 'injury' && a.weeklyKm * 0.75 < 2) {
+        if (as.ok || !as.problems.some((p) => p.includes('Get cleared to run'))) bad(`injured non-runner not refused`); else out.refusedInjured++;
+        continue;
+      }
       if (!as.ok) { bad(`assess ${JSON.stringify(a)}: ${as.problems}`); continue; }
       const def = PLAN_LIBRARY.get(`run-${a.distance}`);
       const r = createPlan(def, a, as.schedule.start);
@@ -106,7 +114,23 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
       const W = r.plan.weeks;
       const tag = `${a.distance}/${a.experience}/${a.weeklyKm}km/${a.limitation}/${a.days.length}d/${a.eventDate || 'noevent'}`;
       const cap = as.plan.longCap;
-      if (cap < RUN_LONG_CAP[a.distance][as.base.experience]) bad(`${tag} long cap below table`);
+      if (a.limitation !== 'injury' && cap < RUN_LONG_CAP[a.distance][as.base.experience]) bad(`${tag} long cap below table`);
+      const inj = a.limitation === 'injury';
+      // Fix 1: injury at ~75% of current volume, long run ≤ 75% of current longest, "Steady" weeks.
+      // ~75% of current, or less only when the runs can't hold it (and the plan says so).
+      const inj75 = Math.round(a.weeklyKm * 0.75 * 2) / 2;
+      if (inj && (as.plan.startKm > inj75 + 0.01 || (Math.abs(as.plan.startKm - inj75) > 0.01 && !as.notes.some((m) => m.includes('More running days'))))) bad(`${tag} injury start ${as.plan.startKm} vs 75% of ${a.weeklyKm}`);
+      if (inj && a.longestKm > 0 && cap > a.longestKm * 0.75 + 0.01) bad(`${tag} injury long cap ${cap} > 75% of ${a.longestKm}`);
+      if (inj && !as.warnings.some((m) => m.startsWith('Only use this plan if you can run without pain or have been cleared to run'))) bad(`${tag} injury warning missing`);
+      // Fix 2: readiness warning exactly when the goal is more than 1.6× the longest training run.
+      const sum = r.plan.summary;
+      const trainLongest = Math.max(...W.flatMap((w) => w.sessions.filter((x) => x.type !== 'race' && x.type !== 'time-trial').map((x) => x.targets.run.km)));
+      const goalKm = RUN_GOALS[a.distance].m / 1000;
+      const warned = sum.warnings.find((m) => m.includes('×'));
+      if (goalKm > 1.6 * trainLongest + 1e-9) {
+        if (!warned || !warned.includes(`${Math.round(goalKm / trainLongest * 10) / 10}×`) || !warned.includes(fmtKm(trainLongest)) || /guarantee|you will be ready|race-ready\./i.test(warned.replace("doesn't make you race-ready", ''))) bad(`${tag} readiness warning wrong: ${warned}`);
+        if (sum.readiness?.ratio == null || Math.abs(sum.readiness.ratio - goalKm / trainLongest) > 0.01) bad(`${tag} readiness ratio`);
+      } else if (warned) bad(`${tag} readiness warning without need`);
       let lastBuild = null, lastLong = null, peak = 0;
       W.forEach((w, i) => {
         const ss = w.sessions;
@@ -125,13 +149,28 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
         if (!w.deload && !w.taper) { lastBuild = w.km; peak = Math.max(peak, w.km); }
         // Volume proportionate to current training
         const trainKm = w.km - ss.filter((x) => x.type === 'race' || x.type === 'time-trial').reduce((n, x) => n + kmOf(x), 0);
-        if (trainKm > Math.max(as.plan.startKm * 1.6, as.plan.startKm) + 1.5) bad(`${tag} w${w.week} volume ${trainKm} vs start ${as.plan.startKm}`);
+        const growthBase = a.weeklyKm < 6 ? Math.max(as.plan.startKm, as.plan.runs * 2) : as.plan.startKm;
+        if (trainKm > Math.max(growthBase * 1.6, as.plan.startKm) + 1.5) bad(`${tag} w${w.week} volume ${trainKm} vs start ${as.plan.startKm}`);
         if (a.limitation === 'injury' && w.km - ss.filter((x) => x.type === 'race').reduce((n, x) => n + kmOf(x), 0) > as.plan.startKm + 0.6) bad(`${tag} injury volume rises`);
+        if (inj && w.km - ss.filter((x) => x.type === 'race').reduce((n, x) => n + kmOf(x), 0) > a.weeklyKm * 0.75 + 0.6) bad(`${tag} w${w.week} injury above 75%`);
+        if (inj && long && long.targets.run.km > Math.max(1.5, a.longestKm * 0.75) + 0.01) bad(`${tag} w${w.week} injury long ${long.targets.run.km}`);
+        if (inj && w.label === 'Build') bad(`${tag} injury week labelled Build`);
+        if (inj && !w.deload && !w.taper && w.label !== 'Steady') bad(`${tag} injury week not Steady: ${w.label}`);
+        // Fix 3: week 1 at most current + 1.5 km (never more just to fill minimum run lengths).
+        if (i === 0 && !inj && w.km > a.weeklyKm + 1.5 + 0.1) bad(`${tag} week 1 ${w.km} > current ${a.weeklyKm} + 1.5`);
+        if (ss.some((x) => x.type !== 'race' && x.type !== 'time-trial' && kmOf(x) < 0.99)) bad(`${tag} run under 1 km`);
+        // Fix 4: the first long run keeps the current longest (up to 40% of week 1, the cap and +1 km),
+        // and build-week long runs never drop below the previous build week's.
+        if (i === 0 && !inj && long && a.longestKm > 0) {
+          const keep = Math.min(cap, a.longestKm, 0.4 * w.km);
+          if (long.targets.run.parts[0].km + 0.51 < keep) bad(`${tag} first long ${long.targets.run.parts[0].km} below kept ${keep}`);
+        }
+        if (long && !w.deload && !w.taper && lastLong != null && long.targets.run.parts[0].km + 0.01 < lastLong && w.week > 1) bad(`${tag} w${w.week} long dropped ${lastLong}→${long.targets.run.parts[0].km}`);
         if (i === 0 && Math.abs(w.km - as.plan.startKm) > Math.max(1.5, as.plan.startKm * 0.15)) bad(`${tag} week 1 ${w.km} vs ${as.plan.startKm}`);
         // Long run: share, cap, growth, longer than easy runs
         if (long) {
           const share = kmOf(long) / total;
-          if (share > (as.plan.runs <= 2 ? 0.6 : 0.47)) bad(`${tag} w${w.week} long share ${share.toFixed(2)}`);
+          if (ss.filter((x) => x.type !== 'race').length > 1 && share > (ss.length <= 2 ? 0.6 : 0.47)) bad(`${tag} w${w.week} long share ${share.toFixed(2)}`);
           if (long.targets.run.parts[0].km > cap + 0.01) bad(`${tag} long over cap`);
           if (lastLong != null && !w.deload && !w.taper && long.targets.run.parts[0].km > lastLong + 1.51) bad(`${tag} long jump`);
           if (ss.some((s) => s.type === 'easy' && s.targets.run.parts[0].km > long.targets.run.parts[0].km + 0.01)) bad(`${tag} easy longer than long`);
@@ -167,6 +206,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
     return out;
   });
   check(`D every generated plan follows the rules (${grid.plans} plans)`, grid.bad.join(' || ') || 'ok', 'ok');
+  check('D injured non-runners refused in every combination', grid.refusedInjured, (n) => n >= 100);
   check('D many plans checked', grid.plans, (n) => n > 1000);
 
   // Sensible across fitness levels: same goal, different runners
@@ -175,7 +215,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   const newbie = await shape({ distance: '5k', weeks: 8, days: [1, 3, 6], experience: 'new', weeklyKm: 0, runsPerWeek: 0, longestKm: 0 });
   const mid = await shape({ distance: '5k', weeks: 8, days: [1, 3, 5, 6], experience: 'some', weeklyKm: 15, runsPerWeek: 3, longestKm: 6 });
   const vet = await shape({ distance: '5k', weeks: 8, days: [0, 1, 2, 3, 4, 5, 6], experience: 'experienced', weeklyKm: 40, runsPerWeek: 5, longestKm: 12 });
-  check('D beginner: short runs, ≤ 10 km/week, no hard sessions', `${newbie.start}|${newbie.peak <= 10}|${newbie.long <= 4}|${newbie.hard}|${newbie.runs}`, '6|true|true|0|3');
+  check('D beginner from zero: week 1 is 1.5 km (one run/walk), builds to ≤ 10 km/week, no hard sessions', `${newbie.start}|${newbie.peak <= 10}|${newbie.peak >= 8}|${newbie.long <= 4}|${newbie.hard}|${newbie.runs}`, '1.5|true|true|true|0|3');
   check('D some experience: builds from 15 to ~24 km, 1 hard session most weeks', `${Math.abs(mid.start - 15) <= 0.5}|${mid.peak >= 20 && mid.peak <= 24.5}|${mid.hard >= 4 && mid.hard <= 7}`, 'true|true|true');
   check('D experienced at 40 km: volume kept (already above a 5K peak), quality added', `${vet.start}|${vet.peak <= 40.5}|${vet.hard >= 8}`, '40|true|true');
 
@@ -292,6 +332,49 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   await page.click(`.plan-sess[data-id="${PID}|w1-3"]`); await wait();
   check('I miles: paces /mi and distances in mi', (await sheet()), (v) => v.includes('/mi') && / mi /.test(v) && !v.includes('/km'));
   await ev(() => { closeSheet(); state.settings.unit = 'kg'; save(); render(); });
+
+  /* R. The five review profiles: whole schedules */
+  const prof = (a) => ev(([a]) => {
+    const as = assessRun(a, todayKey());
+    if (!as.ok) return { problems: as.problems };
+    const plan = createPlan(PLAN_LIBRARY.get(`run-${a.distance}`), a, as.schedule.start).plan;
+    return { start: as.plan.startKm, notes: as.notes, warnings: plan.summary.warnings, goal: as.goal.text || '',
+      weeks: plan.weeks.map((w) => ({ km: w.km, label: w.label, n: w.sessions.length, long: w.sessions.find((x) => x.type === 'long')?.targets.run.km ?? null,
+        hard: w.sessions.filter((x) => ['tempo', 'intervals'].includes(x.type)).length, strides: w.sessions.some((x) => x.targets.run.parts.some((p) => p.t === 'strides')), tt: w.sessions.some((x) => x.type === 'time-trial'), race: w.sessions.some((x) => x.type === 'race') })) };
+  }, [a]);
+  const R1 = await prof({ distance: '5k', weeks: 8, weeklyKm: 4, runsPerWeek: 2, longestKm: 2.5, days: [1, 3, 5], longDay: 5, experience: 'new', limitation: 'none' });
+  check('R1 beginner 5K: week 1 = 5.5 km (4 + 1.5), not 6', `${R1.start}|${R1.weeks[0].km}|${R1.weeks[0].n}`, '5.5|5.5|3');
+  check('R1 beginner 5K: gentle build ≤ 1.5 km/week, recovery week 4, no hard sessions', `${R1.weeks.map((w) => w.km).join(',')}|${R1.weeks[3].label}|${R1.weeks.every((w) => !w.hard)}`, (v) => { const [km, lab, h] = v.split('|'); const k = km.split(',').map(Number); return k.slice(1, 3).every((x, i) => x - k[i] <= 1.6) && lab === 'Recovery week' && h === 'true' && Math.max(...k) <= 10; });
+  const R2 = await prof({ distance: '10k', eventDate: '2027-01-17', weeklyKm: 8, runsPerWeek: 2, longestKm: 4, days: [1, 3, 6], longDay: 6, experience: 'new', limitation: 'none' });
+  const r2w = R2.warnings.find((m) => m.includes('×'));
+  check('R2 beginner 10K race: readiness warning with distances and ratio, no promise', `${!!r2w}|${r2w?.includes('10K (10 km)')}|${r2w?.includes('longest run in this plan is 4.5 km')}|${r2w?.includes('2.2× longer')}|${r2w?.includes('a 5K first, a later race, or plan on walk breaks')}|${r2w?.includes("doesn't make you race-ready")}`, 'true|true|true|true|true|true');
+  check('R2 beginner 10K race: taper and race on the day', `${R2.weeks[8].label}|${R2.weeks[9].label}|${R2.weeks[9].race}|${R2.weeks[9].km < R2.weeks[7].km}`, 'Taper|Race week|true|true');
+  const R2b = await prof({ distance: '10k', weeks: 12, weeklyKm: 8, runsPerWeek: 2, longestKm: 4, days: [1, 3, 6], longDay: 6, experience: 'new', limitation: 'none' });
+  const r2bw = R2b.warnings.find((m) => m.includes('×'));
+  check('R2b beginner 10K no race: says it won\'t fully prepare, no 10K time trial', `${r2bw?.includes("won't fully prepare you for 10K")}|${r2bw?.includes('2.2×')}|${R2b.weeks.some((w) => w.tt)}`, 'true|true|false');
+  const R3 = await prof({ distance: '5k', eventDate: '2027-01-03', recent: { distanceM: 5000, timeSec: 1560, ago: 'month' }, targetSec: 1500, weeklyKm: 20, runsPerWeek: 3, longestKm: 8, days: [1, 3, 5, 6], longDay: 6, experience: 'some', limitation: 'none' });
+  check('R3 intermediate 5K: long run stays 8 km (40% of week 1), never drops in build weeks', `${R3.weeks[0].long}|${R3.weeks.filter((w) => w.label === 'Build').every((w) => w.long >= 8)}|${R3.weeks[3].label}|${R3.weeks[3].long < 8}`, '8|true|Recovery week|true');
+  check('R3 intermediate 5K: one hard session in build weeks 2+, race-week sharpener, goal as rough guide', `${R3.weeks.slice(1, 7).filter((w) => w.label === 'Build').every((w) => w.hard === 1)}|${R3.weeks[7].race}|${R3.goal.includes('as a rough guide')}|${R3.warnings.some((m) => m.includes('×'))}`, 'true|true|true|false');
+  const R4 = await prof({ distance: '10k', eventDate: '2027-01-31', recent: { distanceM: 10000, timeSec: 2400, ago: 'month' }, targetSec: 2340, weeklyKm: 60, runsPerWeek: 6, longestKm: 18, days: [0, 1, 2, 3, 4, 5, 6], longDay: 6, experience: 'experienced', limitation: 'none' });
+  check('R4 experienced 10K: volume held ~60, long 18, recovery 4 & 8, 2-week taper, race', `${R4.weeks.filter((w) => w.label === 'Build').every((w) => w.km >= 58 && w.km <= 60.1)}|${R4.weeks[0].long}|${R4.weeks[3].label}|${R4.weeks[7].label}|${R4.weeks[10].label}|${R4.weeks[11].race}|${Math.max(...R4.weeks.map((w) => w.hard))}`, 'true|18|Recovery week|Recovery week|Taper|true|2');
+  const R5 = await prof({ distance: '10k', weeks: 8, recent: { distanceM: 5000, timeSec: 1500, ago: 'month' }, targetSec: 3000, weeklyKm: 25, runsPerWeek: 4, longestKm: 10, days: [0, 2, 4, 6], longDay: 6, experience: 'some', limitation: 'injury', limitationNote: 'sore Achilles' });
+  check('R5 injury: 19 km (75% of 25), long ≤ 7.5 (75% of 10), Steady weeks, no hard/strides/time trial', `${R5.start}|${Math.max(...R5.weeks.map((w) => w.km))}|${Math.max(...R5.weeks.map((w) => w.long))}|${[...new Set(R5.weeks.map((w) => w.label))].join(',')}|${R5.weeks.some((w) => w.hard || w.strides || w.tt)}`, '19|19|7.5|Steady,Recovery week,Lighter week|false');
+  check('R5 injury: warning text as agreed', R5.warnings.some((m) => m.startsWith('Only use this plan if you can run without pain or have been cleared to run')), true);
+
+  // On screen: the review shows the readiness and injury warnings and the Steady weeks
+  await ev(() => { state.plans = []; save(); render(); });
+  await go(page, 'plans'); await wait();
+  await page.click('[data-action=run-setup][data-id="10k"]'); await wait();
+  await page.evaluate(() => { Object.assign(ui.runSetup, { hasEvent: false, weeks: '12', weekly: '8', runs: '2', longest: '4', experience: 'new', days: [1, 3, 6], longDay: '6' }); });
+  await page.click('[data-action=rs-review]'); await wait();
+  t = await sheet();
+  check('R review shows the readiness warning', t.includes("won't fully prepare you for 10K") && t.includes('2.2×'), true);
+  await page.click('#sheet [data-action=rs-back]'); await wait();
+  await page.evaluate(() => { Object.assign(ui.runSetup, { weekly: '25', runs: '4', longest: '10', experience: 'some', limitation: 'injury', days: [0, 2, 4, 6] }); });
+  await page.click('[data-action=rs-review]'); await wait();
+  t = await sheet();
+  check('R review shows the injury warning and Steady weeks', t.includes('Only use this plan if you can run without pain or have been cleared to run') && t.includes('Steady') && !t.includes('Build'), true);
+  await ev(() => closeSheet());
 
   check('no page errors', JSON.stringify(errors), '[]');
   console.log(results.join('\n'));
