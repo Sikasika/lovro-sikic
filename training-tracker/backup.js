@@ -206,6 +206,8 @@ function validateBackup(parsed) {
       if (!exIds.has(String(en.exerciseId))) missingRefs++;
       if (en.note != null && typeof en.note !== 'string') errors.push(`${here} has an invalid note.`);
       if (en.superset != null && !validId(en.superset)) errors.push(`${here} has an invalid superset group.`);
+      if (en.planned != null && !validTarget(en.planned)) errors.push(`${here} has an invalid program target.`);
+      if (en.swappedFrom != null && !validId(en.swappedFrom)) errors.push(`${here} has an invalid swap record.`);
       if (isTemplate && typeof en.sets === 'number') return; // oldest templates: just a set count
       if (!Array.isArray(en.sets)) { errors.push(`${here} has no sets.`); return; }
       en.sets.forEach((st, j) => {
@@ -231,6 +233,8 @@ function validateBackup(parsed) {
     }
     if (!validDate(w.start)) errors.push(`${label} has no valid date.`);
     if (w.end != null && w.end !== '' && !validDate(w.end)) errors.push(`${label} has an invalid end time.`);
+    if (w.planned != null && !(isObj(w.planned) && typeof w.planned.title === 'string' && typeof w.planned.planName === 'string' && (w.planned.date == null || isDateKey(w.planned.date)) &&
+        Array.isArray(w.planned.items) && w.planned.items.every((x) => validTarget(x) && validId(x.exerciseId)))) errors.push(`${label} has an invalid planned session record.`);
     checkEntries(w.entries, label, false);
   };
   src.workouts.forEach((w, i) => checkWorkout(w, `Workout ${i + 1}`, true));

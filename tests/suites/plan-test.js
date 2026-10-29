@@ -25,7 +25,7 @@ const oldData = { schemaVersion: 2, cardioExercisesAdded: true, active: null, te
 const DEF_V1 = `({ id: 'test-3x', version: 1, kind: 'strength', name: 'Test 3×/week',
   build: (a, start) => Array.from({ length: a.weeks || 3 }, (_, i) => ({ week: i + 1, ...(i === 2 ? { deload: true } : {}),
     sessions: [0, 2, 4].map((d, j) => ({ key: 'w' + (i + 1) + '-' + (j + 1), date: sKey(sAddDays(sFromKey(start), i * 7 + d)), type: 'strength', title: ['A', 'B', 'A'][j],
-      targets: { exercises: [{ exerciseId: 'bench', sets: 3, reps: { min: 8, max: 12 } }] } })) })) })`;
+      targets: { exercises: [{ name: 'Bench Press', exerciseId: 'bench', sets: 3, min: 8, max: 12 }] } })) })) })`;
 const DEF_V2 = DEF_V1.replace("version: 1", "version: 2").replace("['A', 'B', 'A']", "['X', 'Y', 'Z']").replace('[0, 2, 4]', '[1, 3]');
 const RUN_DEF = `({ id: 'test-run', version: 1, kind: 'run', name: 'Test run plan',
   build: (a, start) => [{ week: 1, sessions: [{ key: 'r1', date: start, type: 'easy', title: 'Easy run' }, { key: 'r2', date: sKey(sAddDays(sFromKey(start), 2)), type: 'long', title: 'Long run' }] }] })`;
@@ -74,14 +74,14 @@ const TRI_DEF = RUN_DEF.replace("'test-run'", "'test-tri'").replace("kind: 'run'
     'strength|test-3x|1|2026-11-02|2026-11-20|active|3|{}');
   check('B sessions in the snapshot', p.weeks.map((w) => w.sessions.map((s) => `${s.key}=${s.date}`).join(',')).join(' '),
     'w1-1=2026-11-02,w1-2=2026-11-04,w1-3=2026-11-06 w2-1=2026-11-09,w2-2=2026-11-11,w2-3=2026-11-13 w3-1=2026-11-16,w3-2=2026-11-18,w3-3=2026-11-20');
-  check('B targets and deload week kept', `${JSON.stringify(p.weeks[0].sessions[0].targets)}|${p.weeks[2].deload}`, '{"exercises":[{"exerciseId":"bench","sets":3,"reps":{"min":8,"max":12}}]}|true');
+  check('B targets and deload week kept', `${JSON.stringify(p.weeks[0].sessions[0].targets)}|${p.weeks[2].deload}`, '{"exercises":[{"name":"Bench Press","exerciseId":"bench","sets":3,"min":8,"max":12}]}|true');
   const snap = JSON.stringify(p.weeks);
   // The definition changes (an app update): the running plan must not change.
   await ev((d) => registerPlanDefinition(eval(d)), DEF_V2);
   check('B new definition version: plan unchanged, update only reported', `${JSON.stringify((await st()).plans[0].weeks) === snap}|${await ev(() => planUpdateAvailable(state.plans[0]))}`, 'true|true');
   check('B in-memory plan unchanged too', await ev((s) => JSON.stringify(state.plans[0].weeks) === s, snap), true);
   await page.reload(); await wait(300); // definitions are gone after a reload (as after an app update without them)
-  check('B plan works without its definition', `${await ev(() => PLAN_LIBRARY.size)}|${JSON.stringify((await st()).plans[0].weeks) === snap}|${(await statuses('p1')).split(' ').length}`, '0|true|9');
+  check('B plan works without its definition', `${await ev(() => PLAN_LIBRARY.has('test-3x') ? 1 : 0)}|${JSON.stringify((await st()).plans[0].weeks) === snap}|${(await statuses('p1')).split(' ').length}`, '0|true|9');
   check('B setup answers copied, not shared', await ev((d) => { const a = { weeks: 2 }; const r = createPlan(eval(d), a, '2026-11-02'); a.weeks = 9; return `${r.plan.answers.weeks}|${r.plan.weeks.length}`; }, DEF_V1), '2|2');
   check('B invalid start date refused', await ev((d) => createPlan(eval(d), {}, '2026-13-40').ok, DEF_V1), false);
   check('B broken definition output refused', await ev(() => createPlan({ id: 'x', version: 1, kind: 'strength', name: 'X', build: () => [{ week: 1, sessions: [{ key: 'a', date: '2026-11-02', type: 'strength', title: 'A' }, { key: 'a', date: '2026-11-03', type: 'strength', title: 'B' }] }] }, {}, '2026-11-02').errors.join(' ')), (t) => t.includes('repeats the key'));

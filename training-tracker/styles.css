@@ -1136,3 +1136,70 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 
 .plans-soon-title { font-size: 20px; font-weight: 800; }
 .plans-soon p { color: var(--muted); font-size: 15px; margin: 8px 0 12px; }
+
+/* ---------- Plans and programs ---------- */
+.plan-tag { display: inline-block; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: 1px; }
+.plan-tag.small { font-size: 10px; padding: 0 5px; }
+.plan-flag { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--input); color: var(--text); font-size: 13px; font-weight: 600; margin: 6px 0; }
+.plan-objective { color: var(--muted); font-size: 15px; line-height: 1.4; margin: 8px 0 12px; }
+.plan-card-top { display: flex; align-items: flex-start; gap: 10px; }
+.plan-name { font-size: 19px; font-weight: 800; }
+.plan-bar { height: 6px; border-radius: 3px; background: var(--input); margin: 12px 0 8px; overflow: hidden; }
+.plan-bar span { display: block; height: 100%; background: var(--success); border-radius: 3px; }
+.plan-counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; color: var(--muted); }
+.plan-counts b { color: var(--text); }
+.plan-week-title { margin: 14px 0 4px; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.plan-sessions { margin: 0 -14px -10px; }
+.plan-sess { gap: 10px; min-height: 48px; }
+.plan-sess.static { cursor: default; }
+.plan-sess.is-today { background: var(--accent-soft); }
+.plan-sess .grow { min-width: 0; }
+.plan-sess-title { display: block; font-weight: 600; }
+.plan-day { display: block; font-size: 13px; color: var(--muted); }
+.plan-meta { flex: none; font-size: 13px; color: var(--muted); }
+.plan-card-top .sub { font-size: 15px; color: var(--muted); }
+.pstatus { flex: none; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--input); color: var(--muted); white-space: nowrap; }
+.pstatus.ps-completed { background: var(--success-soft); color: var(--success); }
+.pstatus.ps-missed { background: rgba(215, 38, 56, 0.12); color: var(--danger); }
+.pstatus.ps-today, .pstatus.ps-in-progress { background: var(--accent-soft); color: var(--accent); }
+.pstatus.ps-cancelled { text-decoration: line-through; }
+.plan-warn { border-left: 4px solid var(--danger); font-size: 15px; line-height: 1.45; }
+.plan-warn .sub { margin-top: 6px; }
+.prog-lib { align-items: flex-start; padding-top: 12px; padding-bottom: 12px; }
+.prog-lib[disabled] { opacity: 0.5; }
+.prog-lib-name { display: block; font-weight: 700; font-size: 17px; }
+.prog-lib-sum { display: block; margin-top: 4px; font-size: 14px; color: var(--muted); line-height: 1.35; white-space: normal; }
+.btn-col { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.move-row { display: flex; gap: 10px; align-items: center; }
+.move-row input[type="date"] { flex: 1; min-width: 0; font-size: 17px; padding: 8px 10px; border-radius: 9px; border: 0; background: var(--input); color: var(--text); }
+.ps-field { display: block; margin: 16px 0 0; }
+.ps-label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.ps-field input[type="date"], .ps-field select { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 10px; border: 0; background: var(--card); color: var(--text); }
+.ps-field .segmented { display: flex; }
+.ps-field .segmented button { flex: 1; padding: 7px 4px; font-size: 14px; }
+.ps-field .sub { margin-top: 6px; }
+.day-picker { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.day-picker button { min-height: 44px; border: 0; border-radius: 10px; background: var(--card); color: var(--text); font-size: 14px; font-weight: 600; padding: 0; }
+.day-picker button.on { background: var(--accent); color: var(--on-accent); }
+.plan-banner { margin: 10px 0 2px; padding: 10px 12px; border-radius: var(--radius); background: var(--accent-soft); }
+.plan-banner-top { display: flex; gap: 8px; align-items: center; font-weight: 700; min-width: 0; }
+.plan-banner-sub { font-size: 14px; color: var(--muted); margin-top: 3px; }
+.ex-target { display: flex; gap: 6px; align-items: baseline; font-size: 14px; margin: 2px 0 6px; flex-wrap: wrap; }
+.ex-card .ex-target { padding: 0 14px; }
+.swap-note { color: var(--accent); font-weight: 600; }
+.plan-context { display: flex; gap: 8px; align-items: baseline; font-size: 15px; margin: 4px 0 10px; flex-wrap: wrap; }
+.pva-head { font-weight: 700; margin-bottom: 6px; }
+.pva-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 0.5px solid var(--separator); }
+.pva-ic { flex: none; width: 18px; text-align: center; font-weight: 800; color: var(--muted); }
+.pva-done .pva-ic { color: var(--success); }
+.pva-skipped .pva-ic { color: var(--danger); }
+.pva-name { font-weight: 600; }
+.pva-sub { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; }
+.pva-status { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); }
+.home-plan-tag { font-size: 14px; color: rgba(242, 246, 252, 0.78); margin-bottom: 4px; }
+.home-plan-tag .plan-tag { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.home-plan-links { display: flex; justify-content: center; gap: 22px; margin-top: 10px; }
+.home-plan-links .link { color: #fff; opacity: 0.9; }
+.wk-day.planned { box-shadow: inset 0 0 0 1.5px var(--muted); }
+.wk-day.today.planned { box-shadow: inset 0 0 0 2px var(--accent); }
+.wk-day.missed { background: rgba(215, 38, 56, 0.1); }

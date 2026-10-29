@@ -193,7 +193,21 @@ function openStartChooser() {
       <span style="width:52px"></span>
     </div>
     <div class="sheet-body chooser">
-      <div class="section-title" style="margin-top:4px">From a template</div>
+      ${(() => {
+        const today = todaysPlannedSessions();
+        if (!today.length) return '';
+        return `<div class="section-title" style="margin-top:4px">From your plan</div>
+          <div class="card">${today.map(({ plan, session: s }) => `
+            <div class="tpl-row">
+              <button type="button" class="tpl-main" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">
+                <span class="tpl-badge act-weights" aria-hidden="true">${esc(initials(s.title))}</span>
+                <span class="grow"><span class="tpl-name truncate">Today: ${esc(s.title)}</span>
+                  <span class="tpl-sub truncate">${esc(plan.name)} · Week ${esc(s.week)} · ${plural(s.targets?.exercises?.length || 0, 'exercise')}</span></span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+            </div>`).join('')}</div>`;
+      })()}
+      <div class="section-title"${todaysPlannedSessions().length ? '' : ' style="margin-top:4px"'}>From a template</div>
       ${state.templates.length
         ? `<div class="card">${state.templates.map((t) => templateRow(t, false)).join('')}</div>`
         : `<div class="card card-pad empty-tpl"><div>No templates yet.</div><button type="button" class="btn secondary small" data-action="new-template">Create a Template</button></div>`}
@@ -226,6 +240,7 @@ function planChips(entry, isTemplate) {
 
 function openReview(kind, id) {
   if (state.active) { toast('A workout is already in progress'); showActiveWorkout(); return; }
+  if (kind === 'planned') { openPlannedReview(id); return; }
   const isT = kind === 'template';
   const src = isT ? state.templates.find((t) => t.id === id) : state.workouts.find((w) => w.id === id);
   if (!src) { closeSheet(); render(); return; }
@@ -255,6 +270,61 @@ function openReview(kind, id) {
       <button type="button" class="btn begin-btn" data-action="begin">Begin Workout</button>
       <div class="foot-hint">The workout clock starts when you tap Begin.</div>
     </div>`);
+}
+
+/** Review of a planned session (id "planId|sessionKey") before Begin: its plan context and targets. */
+function openPlannedReview(id) {
+  const [planId, key] = String(id).split('|');
+  const plan = findPlan(state, planId);
+  const s = plan && sessionStatus(plan, key);
+  if (!s) { toast('This session is no longer in your plan'); closeSheet(); render(); return; }
+  ui.review = { kind: 'planned', id };
+  const items = s.targets?.exercises || [];
+  const sets = items.reduce((n, x) => n + x.sets, 0);
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Cancel</button>
+      <h2>Review</h2>
+      <span style="width:52px"></span>
+    </div>
+    <div class="sheet-body review">
+      <div class="review-name">${esc(s.title)}</div>
+      <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))} · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}</div>
+      ${s.targets?.deload ? '<div class="plan-flag">Lighter week</div>' : ''}
+      ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
+      ${s.status === 'completed' || s.status === 'skipped' ? `<div class="finish-note"><span aria-hidden="true">i</span><div>This session is marked ${esc(s.status)}. Logging it now links the new workout to it.</div></div>` : ''}
+      <div class="card review-list">
+        ${items.map((x) => `
+          <div class="rv-ex">
+            <div class="rv-name"><span class="act-dot act-weights" aria-hidden="true"></span>${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div>
+            <div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div>
+          </div>`).join('')}
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn begin-btn" data-action="begin">Begin Workout</button>
+      <div class="foot-hint">The workout clock starts when you tap Begin.</div>
+    </div>`);
+}
+
+/** Start the planned session in the logger (linked to the plan). */
+function startPlannedSession(id) {
+  if (state.active) { toast('A workout is already in progress'); showActiveWorkout(); return; }
+  const [planId, key] = String(id).split('|');
+  const plan = findPlan(state, planId);
+  const s = plan && sessionStatus(plan, key);
+  if (!s) { toast('This session is no longer in your plan'); closeSheet(); render(); return; }
+  // Nothing in the plan changes until the workout is saved (see claimSession).
+  state.active = plannedWorkout(plan, s);
+  ui.savedId = null;
+  ui.review = null;
+  ui.wkScroll = 0;
+  save();
+  ui.tab = 'workout';
+  closeSheet();
+  guardTaps();
+  render();
+  window.scrollTo(0, 0);
 }
 
 /* ---------- Starting ---------- */
@@ -323,6 +393,8 @@ function renderActive(action) {
       </div>
     </div>
 
+    ${w.planned ? planBanner(w) : ''}
+
     ${w.entries.length
       ? w.entries.map((entry, i) => renderEntry(entry, i, letters)).join('')
       : `<div class="empty-session">
@@ -363,6 +435,7 @@ function renderEntry(entry, i, letters = []) {
       </div>
       ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${name}"></div>` : ''}
       ${last?.note ? `<div class="ex-hint">Last note: “${esc(last.note)}”</div>` : ''}
+      ${entry.planned ? `<div class="ex-target"><span class="rec-k">Target</span><span>${entry.planned.sets} × ${entry.planned.min}–${entry.planned.max} reps${entry.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(entry.swappedFrom))}</span>` : ''}</span></div>` : ''}
       ${ck ? '' : `<div class="prog-wrap" data-prog="${i}">${liveProgression(i)}</div>`}
       <div class="set-grid${ck ? ' cardio' : ''}">
         <div class="set-head" aria-hidden="true">
@@ -378,6 +451,15 @@ function renderEntry(entry, i, letters = []) {
         ${entry.sets.length > 1 ? `<button type="button" class="ex-remove-set" data-action="remove-set" data-entry="${i}">Remove last</button>` : ''}
       </div>
     </section>`;
+}
+
+/** Plan context shown above the exercises of a planned workout. */
+function planBanner(w) {
+  const p = w.planned;
+  return `<div class="plan-banner">
+    <div class="plan-banner-top"><span class="plan-tag">Plan</span><span class="truncate">${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''}</span></div>
+    ${p.deload ? '<div class="plan-banner-sub">Lighter week: fewer sets, about 10% less weight.</div>' : '<div class="plan-banner-sub">Work in each exercise\'s target range; the recommendation uses it.</div>'}
+  </div>`;
 }
 
 /**
@@ -397,8 +479,10 @@ function liveProgression(i) {
     ? `<div class="prog-last"><span class="rec-k">Last</span><span>${esc(shortDay(prev.workout.start))}: ${esc(prev.sets.map(shortSet).join(', '))}</span></div>`
     : '<div class="prog-last muted">No previous session with working sets</div>';
   const trend = today.length && prev ? trendHtml(strengthTrend(today, prev.sets), `today vs ${shortDay(prev.workout.start)}`) : '';
-  const advice = today.length ? progressionAdvice(today) : prev ? progressionAdvice(prev.sets) : null;
-  const basis = today.length ? 'based on today so far' : prev ? `based on ${shortDay(prev.workout.start)}` : '';
+  // A program's rep range for this exercise applies to both (the target is for today's session).
+  const range = repRange(e.planned);
+  const advice = today.length ? progressionAdvice(today, weightStep(), range) : prev ? progressionAdvice(prev.sets, weightStep(), range) : null;
+  const basis = `${today.length ? 'based on today so far' : prev ? `based on ${shortDay(prev.workout.start)}` : ''}${advice && !isDefaultRange(range) ? ` · target ${rangeText(range)}` : ''}`;
   const kg = advice ? (advice.action === 'keep' ? advice.load : advice.next) : null;
   const fillable = kg != null && e.sets.some((s) => setType(s) === 'working' && !s.done && (s.weight === '' || s.weight == null));
   const use = fillable ? `<button type="button" class="rec-use" data-action="use-weight" data-entry="${i}" data-kg="${kg}">Use ${esc(loadText(kg))}</button>` : '';
@@ -526,6 +610,7 @@ function openEntryMenu(ei) {
   openSheet(`
     <div class="sheet-head"><span style="width:52px"></span><h2>${esc(exName(e.exerciseId))}</h2><button type="button" class="link" data-action="close-sheet">Cancel</button></div>
     <div class="sheet-body"><div class="card">
+      ${e.planned ? `<button type="button" class="list-item" data-action="swap-exercise" data-entry="${ei}">Swap exercise${e.swappedFrom != null ? ` (planned: ${esc(exName(e.swappedFrom))})` : ''}</button>` : ''}
       ${e.note === undefined ? `<button type="button" class="list-item" data-action="entry-note" data-entry="${ei}">Add exercise note</button>` : ''}
       ${ei < entries.length - 1 && (!e.superset || entries[ei + 1].superset !== e.superset) ? `<button type="button" class="list-item" data-action="entry-link" data-entry="${ei}">Superset with ${esc(exName(entries[ei + 1].exerciseId))}</button>` : ''}
       ${e.superset ? `<button type="button" class="list-item" data-action="entry-unlink" data-entry="${ei}">Remove from superset</button>` : ''}
@@ -533,6 +618,53 @@ function openEntryMenu(ei) {
       ${ei < entries.length - 1 ? `<button type="button" class="list-item" data-action="move-entry" data-entry="${ei}" data-dir="1">Move down</button>` : ''}
       <button type="button" class="list-item" data-action="remove-entry" data-entry="${ei}" style="color:var(--danger)">Remove exercise</button>
     </div></div>`);
+}
+
+/**
+ * Replace a planned exercise with another for this workout only. The entry keeps its
+ * target and records the planned exercise (swappedFrom); the plan and templates are not
+ * changed. Sets already entered are cleared (after confirmation), keeping their number.
+ */
+function swapExercise(ei, exerciseId) {
+  const e = state.active?.entries[ei];
+  if (!e || !e.planned) { closeSheet(); render(); return; }
+  if (exerciseId === e.exerciseId) { closeSheet(); return; }
+  const n = e.sets.filter(setMatters).length;
+  if (n && !confirm(`Swap to ${exName(exerciseId)}? The ${plural(n, 'set')} entered for ${exName(e.exerciseId)} will be cleared.`)) return;
+  const original = e.swappedFrom ?? e.exerciseId;
+  e.exerciseId = exerciseId;
+  if (exerciseId === original) delete e.swappedFrom; else e.swappedFrom = original;
+  e.sets = e.sets.map((s) => ({ weight: '', reps: '', ...typeField(s), done: false }));
+  ui.swapEntry = null;
+  save();
+  closeSheet();
+  render();
+  toast(exerciseId === original ? `Back to ${exName(exerciseId)}` : `Swapped to ${exName(exerciseId)} for this workout`);
+}
+
+/** Planned vs actual block (Finish summary and History). */
+function plannedVsActualHtml(w) {
+  const pva = plannedVsActual(w);
+  if (!pva) return '';
+  const icon = { done: '✓', partial: '◐', skipped: '–', added: '+' };
+  const statusText = { done: 'Done', partial: 'Partly done', skipped: 'Not done', added: 'Added' };
+  return `
+    <div class="section-title">Planned vs actual</div>
+    <div class="card card-pad pva">
+      <div class="pva-head">${esc(w.planned.title)}${w.planned.week ? ` · Week ${esc(w.planned.week)}` : ''} · ${pva.doneSets} of ${plural(pva.plannedSets, 'planned set')}${pva.swaps ? ` · ${plural(pva.swaps, 'swap')}` : ''}</div>
+      ${pva.rows.map((r) => {
+        const name = r.status === 'added' ? exName(r.actualId) : r.swapped ? exName(r.actualId) : exName(r.exerciseId);
+        const range = r.status === 'added' ? '' : `${r.min}–${r.max} reps`;
+        const reps = r.reps.length ? `reps ${r.reps.join(', ')}` : '';
+        const inRange = r.inRange == null ? '' : r.inRange ? ' · in range' : ' · outside range';
+        return `<div class="pva-row pva-${r.status}">
+          <span class="pva-ic" aria-hidden="true">${icon[r.status]}</span>
+          <span class="grow"><span class="pva-name">${esc(name)}</span>${r.swapped ? `<span class="swap-note"> instead of ${esc(exName(r.exerciseId))}</span>` : ''}
+            <span class="pva-sub">${r.status === 'added' ? `${plural(r.done, 'set')} · not in the plan` : `${Math.min(r.done, r.plannedSets)}/${r.plannedSets} sets${r.done > r.plannedSets ? ` (+${r.done - r.plannedSets})` : ''} · target ${range}${reps ? ` · ${reps}` : ''}${inRange}`}</span></span>
+          <span class="pva-status">${statusText[r.status]}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 /* ---------- Finishing and discarding ---------- */
@@ -584,6 +716,7 @@ function openFinishSheet() {
       </div>
       ${saveSets ? '' : `<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>No sets are ticked yet</b>, so there's nothing to save.</div></div>`}
       ${notes.join('')}
+      ${w.planned && saveSets ? plannedVsActualHtml(toSave) : ''}
     </div>
     <div class="sheet-foot">
       ${saveSets ? '<button type="button" class="btn save-btn" data-action="save-workout">Save Workout</button>' : ''}
@@ -598,6 +731,7 @@ function saveActiveWorkout(markPending) {
   const w = preparedWorkout(markPending);
   if (!w.entries.length) { toast('Tick at least one set first'); return; }
   w.end = new Date().toISOString();
+  if (w.plan) claimSession(state, w); // this workout now completes its planned session
   if (!state.workouts.some((x) => x.id === w.id)) {
     state.workouts.unshift(w);
     state.workouts.sort((a, b) => new Date(b.start) - new Date(a.start));
@@ -700,7 +834,7 @@ setInterval(() => {
 /* ---------- Events (called from the single click/input handlers in app.js) ---------- */
 
 /** Actions that only make sense while a workout is in progress. */
-const LIVE_ACTIONS = new Set(['finish', 'save-workout', 'discard', 'add-exercise', 'toggle-set', 'add-set', 'remove-set', 'entry-menu', 'move-entry', 'remove-entry', 'entry-note', 'entry-link', 'entry-unlink', 'rest-adjust', 'use-weight']);
+const LIVE_ACTIONS = new Set(['finish', 'save-workout', 'discard', 'add-exercise', 'toggle-set', 'add-set', 'remove-set', 'entry-menu', 'move-entry', 'remove-entry', 'entry-note', 'entry-link', 'entry-unlink', 'rest-adjust', 'use-weight', 'swap-exercise']);
 
 /** Handle a Workout-tab action. Returns true if it was one. */
 function handleWorkoutAction(action, el, ei, si) {
@@ -708,9 +842,11 @@ function handleWorkoutAction(action, el, ei, si) {
   switch (action) {
     case 'start-flow': openStartChooser(); break;
     case 'review': openReview(el.dataset.kind, el.dataset.id); break;
+    case 'swap-exercise': ui.swapEntry = ei; openExercisePicker('swap'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
     case 'repeat': openReview('repeat', el.dataset.id); break;
     case 'begin': {
       const r = ui.review;
+      if (r?.kind === 'planned') { startPlannedSession(r.id); break; }
       const src = r && (r.kind === 'template' ? state.templates.find((t) => t.id === r.id) : state.workouts.find((w) => w.id === r.id));
       if (src) startWorkout(src); else { closeSheet(); render(); }
       break;

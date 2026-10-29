@@ -95,11 +95,9 @@ const base = (extra = {}) => ({ schemaVersion: 2, cardioExercisesAdded: true, ac
   await go(page, 'history'); await wait();
   check('D no gear on other tabs', await page.$('[data-action=open-settings]'), null);
 
-  /* E. Plans placeholder */
+  /* E. Plans tab */
   await go(page, 'plans'); await wait();
-  check('E Plans placeholder', `${await title()}|${(await view()).includes('Programs and plans')}`, 'Plans|true');
-  await page.click('#view [data-tab=workout]'); await wait();
-  check('E Go to Train', `${await title()}|${await current()}`, 'Train|workout');
+  check('E Plans: program library', `${await title()}|${await current()}|${(await view()).includes('Full Body 3×/week')}|${(await view()).includes('Upper/Lower 4×/week')}|${await noOverflow()}`, 'Plans|plans|true|true|true');
 
   check('F browsing did not change stored data', before === await page.evaluate((k) => localStorage.getItem(k), KEY), true);
 

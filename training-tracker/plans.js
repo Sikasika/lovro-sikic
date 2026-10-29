@@ -93,12 +93,17 @@ function planProblems(p, label = 'A plan') {
       if (!(typeof s.type === 'string' && s.type)) out.push(`${here} has no type.`);
       if (typeof s.title !== 'string') out.push(`${here} has no title.`);
       if (s.targets != null && !isPlainObject(s.targets)) out.push(`${here} has invalid targets.`);
+      else if (s.targets?.exercises != null && !(Array.isArray(s.targets.exercises) && s.targets.exercises.every(validPlannedExercise))) out.push(`${here} has invalid exercise targets.`);
     });
   });
   if (!keys.size) out.push(`${name} has no sessions.`);
   return out;
 }
 
+const isCount = (v) => Number.isInteger(v) && v >= 1 && v <= 50;
+/** { sets, min, max } of a planned exercise: whole numbers, 1 ≤ min ≤ max ≤ 50. */
+const validTarget = (t) => isPlainObject(t) && isCount(t.sets) && isCount(t.min) && isCount(t.max) && t.min <= t.max;
+const validPlannedExercise = (x) => validTarget(x) && typeof x.name === 'string' && (x.exerciseId == null || (typeof x.exerciseId === 'string' && x.exerciseId !== ''));
 const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const validPlanLink = (l) => isPlainObject(l) && typeof l.planId === 'string' && l.planId !== '' && typeof l.sessionKey === 'string' && l.sessionKey !== '';
 
@@ -213,6 +218,9 @@ function planProgress(plan, st = state, today = todayKey()) {
 function sessionsOn(st, date, today = todayKey()) {
   return runningPlans(st, today).flatMap((p) => sessionStatuses(p, st, today).filter((s) => s.date === date).map((s) => ({ plan: p, session: s })));
 }
+
+/** "Wed 11 Nov" for a date key. */
+const sessionDayText = (key) => sFromKey(key).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 
 /* ---------- Starting plans side by side ---------- */
 
@@ -345,6 +353,20 @@ function linkWorkout(st, workoutId, planId, key, opts = {}) {
   w.plan = { planId, sessionKey: key };
   setOverride(plan, key, { status: undefined });
   return { ok: true };
+}
+
+/**
+ * A workout logged for a session is being saved: it becomes the session's workout. An
+ * earlier workout linked to the same session keeps its data but loses the link, and a
+ * skip or manual "done" on the session is cleared. A link to a session that no longer
+ * exists is removed.
+ */
+function claimSession(st, w) {
+  const plan = validPlanLink(w.plan) && findPlan(st, w.plan.planId);
+  if (!plan || !findSession(plan, w.plan.sessionKey)) { delete w.plan; return false; }
+  (st.workouts || []).forEach((x) => { if (x.id !== w.id && validPlanLink(x.plan) && x.plan.planId === plan.id && x.plan.sessionKey === w.plan.sessionKey) delete x.plan; });
+  setOverride(plan, w.plan.sessionKey, { status: undefined });
+  return true;
 }
 
 function unlinkWorkout(st, workoutId) {

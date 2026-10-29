@@ -122,6 +122,28 @@ const data = {
   await inspect('Restore confirm'); await page.click('[data-action=restore-cancel]'); await wait();
   await page.setInputFiles('#import-file', { name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('nope') }); await wait(500);
   await inspect('Restore error'); await close();
+
+  // Plans: setup, review, running program, session, schedule, planned workout, swap, finish, History
+  const shut = async () => { await page.evaluate(() => closeSheet()); await wait(); };
+  await page.evaluate(() => { state.active = null; save(); render(); }); // finish with no workout in progress
+  await tab('plans'); await page.click('[data-action=plan-setup][data-id=upper-lower-4]'); await wait(); await inspect('Program setup');
+  await page.evaluate(() => { const d = (new Date().getDay() + 6) % 7; ui.planSetup.days = [d, (d + 1) % 7, (d + 3) % 7, (d + 4) % 7]; openProgramSetup(ui.planSetup.id, true); }); await wait();
+  await page.click('[data-action=ps-review]'); await wait(); await inspect('Program review');
+  await page.click('[data-action=ps-start]'); await wait(); await inspect('Plans with a program');
+  await page.click('.plan-card .plan-sess'); await wait(); await inspect('Plan session');
+  await page.click('#sheet [data-action=plan-open]'); await wait(); await inspect('Plan schedule'); await shut();
+  await tab('home'); await inspect('Today with a planned session');
+  await page.click('#view [data-action=review][data-kind=planned]'); await wait(); await inspect('Planned review');
+  await page.click('#sheet [data-action=begin]'); await wait(600); await inspect('Planned workout');
+  await page.click('[data-action=entry-menu][data-entry="0"]'); await wait(); await inspect('Planned exercise menu');
+  await page.click('#sheet [data-action=swap-exercise]'); await wait(); await inspect('Swap picker');
+  await page.click('#sheet [data-action=pick-exercise] >> nth=0'); await wait(); await inspect('Swapped exercise');
+  await page.fill('[data-field=weight][data-entry="1"][data-set="0"]', '50'); await page.fill('[data-field=reps][data-entry="1"][data-set="0"]', '8');
+  await page.click('[data-action=toggle-set][data-entry="1"][data-set="0"]'); await wait();
+  if (await page.isVisible('#sb-rest')) await page.click('[data-action=rest-skip]');
+  await page.click('[data-action=finish]'); await wait(); await inspect('Finish with planned vs actual');
+  await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
+  await tab('history'); await page.click('[data-action=open-workout] >> nth=0'); await wait(); await inspect('History planned workout'); await shut();
   await page.screenshot({ path: `${SP}/crawl-${width}-${scheme}.png` });
   console.log(`width ${width} ${scheme}: ${screens} screens checked`);
   console.log('problems:', problems.length ? '\n  ' + [...new Set(problems)].join('\n  ') : 'none');

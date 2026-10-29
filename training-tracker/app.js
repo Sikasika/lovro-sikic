@@ -528,10 +528,14 @@ function unlinkSuperset(entries, i) {
 const isLastInSuperset = (entries, i) => !entries[i].superset || entries[i + 1]?.superset !== entries[i].superset;
 
 /** Exercise-level fields carried between workouts, templates and editors. */
-function entryExtras(e, { keepNote = true } = {}) {
+function entryExtras(e, { keepNote = true, keepPlan = false } = {}) {
   const out = {};
   if (keepNote && typeof e.note === 'string' && e.note.trim()) out.note = e.note.trim();
   if (e.superset) out.superset = e.superset;
+  // Program target and swap record: kept when editing a saved workout, never copied into
+  // templates or repeated workouts.
+  if (keepPlan && e.planned) out.planned = { ...e.planned };
+  if (keepPlan && e.swappedFrom != null) out.swappedFrom = e.swappedFrom;
   return out;
 }
 
@@ -613,7 +617,7 @@ function renderHistory() {
         <button type="button" class="list-item hist-item" data-action="open-workout" data-id="${esc(w.id)}">
           <div class="grow">
             <div class="hist-top"><span class="truncate hist-name">${esc(w.name)}</span><span class="hist-date">${fmtDate(w.start)}</span></div>
-            <div class="sub">${esc(meta.join(' · '))}</div>
+            <div class="sub">${w.planned ? `<span class="plan-tag small">Plan</span> ` : ''}${esc(meta.join(' · '))}</div>
           </div>
           <span class="chev">›</span>
         </button>`;
@@ -723,17 +727,27 @@ function adviceHtml(a, label, basis, extra = '') {
   return `<div class="rec rec-${a.action}"><span class="rec-k">${esc(label)}</span><span class="rec-t"><b>${esc(text)}</b> <span class="rec-basis">${esc(basis)}</span></span>${extra}</div>`;
 }
 
+/** Which plan session a saved workout was done for (and whether it still counts for it). */
+function planContextLine(w) {
+  const p = w.planned;
+  const plan = w.plan && findPlan(state, w.plan.planId);
+  const linked = plan && sessionStatus(plan, w.plan.sessionKey)?.workoutId === w.id;
+  return `<div class="plan-context"><span class="plan-tag">Plan</span><span>${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''} · ${esc(p.title)}${p.date ? ` (planned ${esc(sessionDayText(p.date))})` : ''}${linked ? '' : ' · no longer linked to the plan'}</span></div>`;
+}
+
 /** Trend + recommendation for one strength exercise in a saved workout. */
 function historyProgression(w, exerciseId) {
   const cur = progressionSets(w, exerciseId);
   if (!cur.length) return '';
   const prev = previousWorkingSession(state.workouts, w, exerciseId);
   const later = laterWorkingSession(state.workouts, w, exerciseId);
-  const advice = progressionAdvice(cur);
+  const range = workoutRepRange(w, exerciseId);
+  const advice = progressionAdvice(cur, weightStep(), range);
+  const target = isDefaultRange(range) ? '' : ` · target ${rangeText(range)}`;
   const trend = prev ? trendHtml(strengthTrend(cur, prev.sets), `vs ${shortDay(prev.workout.start)}`) : '';
   const rec = later
-    ? adviceHtml(advice, 'At the time', `from this session · done again on ${shortDay(later.start)}`)
-    : adviceHtml(advice, 'Next time', 'from this session');
+    ? adviceHtml(advice, 'At the time', `from this session · done again on ${shortDay(later.start)}${target}`)
+    : adviceHtml(advice, 'Next time', `from this session${target}`);
   return trend || rec ? `<div class="prog">${trend}${rec}</div>` : '';
 }
 
@@ -796,6 +810,7 @@ function renderWorkoutDetail(w) {
           ${volume > 0 ? `<div class="bw-metric"><div class="bw-metric-v">${fmtWeight(volume)}</div><div class="bw-metric-l">Volume (${esc(unit())})</div><div class="bw-metric-h">Warm-ups excluded</div></div>` : ''}
         </div>
       </div>
+      ${w.planned ? planContextLine(w) + plannedVsActualHtml(w) : ''}
       ${w.entries.map((e, i) => {
         const ck = cardioKindOf(e.exerciseId) || ((e.sets || []).some(hasCardioValues) ? 'other' : null);
         const first = !seen.has(e.exerciseId);
@@ -807,6 +822,7 @@ function renderWorkoutDetail(w) {
           ${ss && !ssCont ? `<span class="ss-badge">Superset ${ss}</span>` : ''}
           <div class="hist-ex-head"><span class="hist-ex-name">${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
           ${e.note ? `<div class="detail-note">📝 ${esc(e.note)}</div>` : ''}
+          ${e.planned ? `<div class="ex-target"><span class="rec-k">Target</span><span>${e.planned.sets} × ${e.planned.min}–${e.planned.max} reps${e.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(e.swappedFrom))}</span>` : ''}</span></div>` : ''}
           ${cmp.line}
           ${!ck && first ? historyProgression(w, e.exerciseId) : ''}
           <div class="hsets">${historySetRows(e, ck, cmp.perSet)}${cardioTotalLine(e, ck)}</div>
@@ -842,7 +858,7 @@ function beginWorkoutEdit(w) {
     entries: (w.entries || []).map((e) => ({
       exerciseId: e.exerciseId,
       sets: (e.sets || []).map((st) => ({ weight: num(st.weight) ?? '', reps: num(st.reps) ?? '', ...cardioFields(st), ...typeField(st), ...(st.target ? { target: st.target } : {}), done: st.done !== false })),
-      ...entryExtras(e)
+      ...entryExtras(e, { keepPlan: true })
     }))
   };
   ui.wdraftOriginal = JSON.stringify(ui.wdraft);
@@ -943,7 +959,7 @@ function saveWorkoutEdit() {
       sets: e.sets
         .filter((st) => st.weight !== '' || st.reps !== '' || num(st.distance) != null || num(st.duration) != null)
         .map((st) => ({ weight: st.weight, reps: st.reps === '' ? '' : String(st.reps), ...cardioFields(st), ...typeField(st), ...(st.target ? { target: st.target } : {}), done: st.done !== false })),
-      ...entryExtras(e)
+      ...entryExtras(e, { keepPlan: true })
     }))
     .filter((e) => e.sets.length);
   normalizeSupersets(entries);
@@ -1302,8 +1318,8 @@ function openExercisePicker(mode = 'pick') {
   openSheet(`
     <div class="sheet-head">
       <span style="width:52px"></span>
-      <h2>Add Exercise</h2>
-      <button class="link" data-action="${{ template: 'back-to-template', wedit: 'back-to-wedit' }[mode] || 'close-sheet'}">${mode === 'template' || mode === 'wedit' ? 'Back' : 'Done'}</button>
+      <h2>${mode === 'swap' ? 'Swap Exercise' : 'Add Exercise'}</h2>
+      <button class="link" data-action="${{ template: 'back-to-template', wedit: 'back-to-wedit' }[mode] || 'close-sheet'}">${mode === 'template' || mode === 'wedit' ? 'Back' : mode === 'swap' ? 'Cancel' : 'Done'}</button>
     </div>
     <div class="sheet-body">
       <input class="search" id="exercise-search" type="search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}" aria-label="Search exercises">
@@ -1500,6 +1516,7 @@ document.addEventListener('click', (ev) => {
     case 'pick-exercise':
       if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: id, sets: newLoggedSets() }); openWorkoutEditor(); }
       else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: id, sets: defaultPlannedSets(id) }); openTemplateEditor(); }
+      else if (el.dataset.mode === 'swap') swapExercise(ui.swapEntry, id);
       else addExerciseToWorkout(id);
       break;
     case 'create-exercise': openCategoryPicker($('#exercise-search').value.trim(), el.dataset.mode); break;
@@ -1510,6 +1527,7 @@ document.addEventListener('click', (ev) => {
       if (el.dataset.mode === 'wedit') { ui.wdraft.entries.push({ exerciseId: ex.id, sets: newLoggedSets() }); openWorkoutEditor(); }
       else if (el.dataset.mode === 'template') { ui.draft.entries.push({ exerciseId: ex.id, sets: defaultPlannedSets(ex.id) }); openTemplateEditor(); }
       else if (el.dataset.mode === 'pick' && state.active) addExerciseToWorkout(ex.id);
+      else if (el.dataset.mode === 'swap' && state.active) swapExercise(ui.swapEntry, ex.id);
       else { ui.exm = { q: '', cat: 'all' }; openExerciseManager(); }
       break;
     }
@@ -1582,14 +1600,14 @@ document.addEventListener('click', (ev) => {
     case 'export-pre-update': exportPreUpdateCopy(); break;
     case 'import': $('#import-file').click(); break;
     case 'reset':
-      if (confirm('Erase ALL workouts, templates, weigh-ins and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
+      if (confirm('Erase ALL workouts, templates, weigh-ins, plans and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
         keepBeforeRestoreCopy();
         state = defaultState(); stopRest(); save(); applyTheme(); render(); toast('All data erased');
       }
       break;
     default:
       // Workout tab actions (workout.js), then body weight (bodyweight.js).
-      if (!handleWorkoutAction(action, el, ei, si)) handleWeightAction(action, el);
+      if (!handleWorkoutAction(action, el, ei, si) && !handlePlanAction(action, el)) handleWeightAction(action, el);
   }
 });
 

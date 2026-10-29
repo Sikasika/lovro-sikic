@@ -20,10 +20,16 @@ Tabs: **Today** · **Train** · **Plans** · **Progress** (Overview, Insights, S
 Features:
 - Today: the workout in progress (Continue) or Start Workout, this week Mon–Sun, the latest
   workout with up to two insights, and the body-weight trend
-- Plans: placeholder screen. The plan core is in place (`plans.js`): schedules saved as a
-  snapshot when a plan starts, session status worked out from linked workouts or a skip /
-  done-by-hand override, one-session moves (nothing shifts automatically), one strength
-  program plus one sport plan at a time, plans in backups. Programs and plan setup come next
+- Plans: built-in strength programs (Full Body 3×/week, Upper/Lower 4×/week). Set up start
+  date, training days, length and lighter weeks; review the whole schedule; start. The schedule
+  is saved as a snapshot (app updates never change it). Program card with week n of N, done /
+  missed / skipped counts, this week's sessions, full schedule, same-day conflict warnings.
+  Each session can be started (opens the normal logger), skipped, moved (only that session;
+  nothing shifts automatically) or marked done; stop or delete a program. Today shows today's
+  planned session; Train's Start Workout lists it first.
+- Planned workouts: per-exercise targets (sets × rep range), swap an exercise for the day
+  (recorded as "instead of …"), planned vs actual on the Finish screen and in History. The
+  next-weight recommendation uses the program's rep range; 8–12 everywhere else
 - Train: Start Workout → pick a template or recent workout → review → Begin (the clock
   starts only then), or start empty. Live session with a sticky bar (clock, progress,
   rest timer, Finish), large ✓ targets, "previous" column, planned targets, warm-up/working/drop
@@ -47,7 +53,8 @@ Features:
 Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
 calculations), `backup.js` (backup format and restore), `workout.js` (Train tab: start,
 live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `plans.js` (plan data, session
-statuses, links), `home.js` (Today, Plans, Progress sections), `app.js` (other screens, editors, events), `stats.js`
+statuses, links), `programs.js` (built-in programs, schedules, planned workouts),
+`plans-ui.js` (Plans tab), `home.js` (Today, Plans, Progress sections), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 
 Releasing a change: bump `CACHE` in `training-tracker/sw.js` (and add any new file to

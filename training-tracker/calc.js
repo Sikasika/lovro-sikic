@@ -711,8 +711,11 @@ function cardioTotals(sets) {
    - Weighted vs bodyweight: no trend.
 
    Recommendation (what weight to use next; never shown as up/down):
-   - Increase if any working set has 13+ reps, or all working sets have 12+ reps.
-   - Decrease if all working sets are below 8 reps.
+   - Rep range: 8–12 by default; an exercise done as part of a program uses the program's
+     range for it (entry.planned { min, max }), e.g. 5–8.
+   - Increase if any working set is above the range (13+ by default), or all working sets
+     reach the top of the range (12+).
+   - Decrease if all working sets are below the range (under 8).
    - Otherwise keep the weight and aim for more reps.
    - Current load = heaviest working weight; next load = current ± the weight step
      setting (default 2.5 kg / 5 lb), in the selected unit. No weight logged (bodyweight)
@@ -722,6 +725,16 @@ function cardioTotals(sets) {
 const PROG_REPS_MIN = 8;
 const PROG_REPS_TOP = 12;
 const PROG_REPS_JUMP = 13;
+const DEFAULT_REP_RANGE = { min: PROG_REPS_MIN, max: PROG_REPS_TOP };
+
+/** A program's rep range if valid (whole numbers, 1 ≤ min ≤ max ≤ 50), else the 8–12 default. */
+function repRange(r) {
+  return r && Number.isInteger(r.min) && Number.isInteger(r.max) && r.min >= 1 && r.min <= r.max && r.max <= 50 ? { min: r.min, max: r.max } : DEFAULT_REP_RANGE;
+}
+const isDefaultRange = (r) => r.min === PROG_REPS_MIN && r.max === PROG_REPS_TOP;
+const rangeText = (r) => `${r.min}–${r.max} reps`;
+/** The program rep range for an exercise in a workout (its first entry with one), else the default. */
+const workoutRepRange = (w, exerciseId) => repRange((w?.entries || []).find((e) => e.exerciseId === exerciseId && e.planned)?.planned);
 const TREND_E1RM_BAND = 0.02;
 const WEIGHT_STEP_DEFAULT = { kg: 2.5, lb: 5 };
 const WEIGHT_STEP_LIMITS = { kg: [0.25, 50], lb: [0.5, 100] };
@@ -803,13 +816,14 @@ function strengthTrend(cur, prev) {
  * Recommendation from one session's working sets: { action: 'increase'|'decrease'|'keep', load (kg), next (kg|null) }
  * or null (no working sets, or no weight logged).
  */
-function progressionAdvice(sets, step = weightStep()) {
+function progressionAdvice(sets, step = weightStep(), range = DEFAULT_REP_RANGE) {
   if (!sets.length) return null;
   const weights = sets.map(setW).filter((w) => w > 0);
   if (!weights.length) return null;
   const reps = sets.map(setR);
-  const action = reps.some((r) => r >= PROG_REPS_JUMP) || reps.every((r) => r >= PROG_REPS_TOP) ? 'increase'
-    : reps.every((r) => r < PROG_REPS_MIN) ? 'decrease' : 'keep';
+  const { min, max } = repRange(range);
+  const action = reps.some((r) => r > max) || reps.every((r) => r >= max) ? 'increase'
+    : reps.every((r) => r < min) ? 'decrease' : 'keep';
   const load = Math.max(...weights);
   let next = null;
   if (action !== 'keep' && step > 0) {

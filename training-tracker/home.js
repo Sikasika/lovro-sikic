@@ -10,7 +10,7 @@
 
   Progress groups Overview (the former Progress tab), Insights, Statistics and Body
   weight. They keep their own render functions and tab ids, so existing behaviour is
-  unchanged. Plans is a placeholder until programs arrive (next phase).
+  unchanged. The Plans tab itself is in plans-ui.js.
 
   Loaded before app.js; everything runs only when called.
 */
@@ -46,6 +46,13 @@ function weekStrip(items, today) {
     it.entries.forEach((e) => types.add(entryType(e)));
     byDay.set(k, types);
   }
+  const planned = new Map(); // date → statuses of planned sessions that day
+  for (const p of runningPlans(state, sKey(today)).concat(plansOf(state).filter((p) => planPhase(p, sKey(today)) === 'finished'))) {
+    for (const s of sessionStatuses(p, state, sKey(today))) {
+      if (s.date < sKey(start) || s.date > sKey(days[6])) continue;
+      planned.set(s.date, [...(planned.get(s.date) || []), s.status]);
+    }
+  }
   const week = items.filter((it) => it.day >= start && it.day <= today);
   const sum = summarizeWorkouts(week);
   return `
@@ -55,8 +62,11 @@ function weekStrip(items, today) {
         ${days.map((d) => {
           const types = byDay.get(sKey(d));
           const isToday = sKey(d) === sKey(today);
-          const label = `${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}: ${types ? 'trained' : d > today ? 'coming up' : 'no workout'}`;
-          return `<div class="wk-day${isToday ? ' today' : ''}${types ? ' done' : ''}${d > today ? ' future' : ''}" role="listitem" aria-label="${esc(label)}">
+          const plan = planned.get(sKey(d)) || [];
+          const missed = !types && plan.includes('missed');
+          const due = !types && plan.some((st) => st === 'upcoming' || st === 'today');
+          const label = `${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}: ${types ? 'trained' : missed ? 'planned session missed' : due ? 'session planned' : d > today ? 'coming up' : 'no workout'}`;
+          return `<div class="wk-day${isToday ? ' today' : ''}${types ? ' done' : ''}${d > today ? ' future' : ''}${due ? ' planned' : ''}${missed ? ' missed' : ''}" role="listitem" aria-label="${esc(label)}">
             <span class="wk-name">${esc(d.toLocaleDateString(undefined, { weekday: 'narrow' }))}</span>
             <span class="wk-num">${d.getDate()}</span>
             <span class="wk-dots">${types ? [...types].map((t) => `<i class="act-${t}"></i>`).join('') : ''}</span>
@@ -79,14 +89,34 @@ function homeActiveCard() {
     </div>`;
 }
 
+/** Today's planned session from a running plan (start it from here), if any is still open. */
+function homePlannedCard(x) {
+  const { plan, session: s } = x;
+  const pr = planProgress(plan);
+  const n = s.targets?.exercises?.length || 0;
+  return `
+    <section class="start-hero home-today home-plan">
+      <div class="home-plan-tag"><span class="plan-tag">Plan</span> ${esc(plan.name)} · Week ${esc(s.week)} of ${pr.weeks}</div>
+      <h2 class="hero-title">Today: ${esc(s.title)}</h2>
+      <p class="hero-sub">${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
+      <button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">Start ${esc(s.title)}</button>
+      <div class="home-plan-links">
+        <button type="button" class="link small" data-action="plan-session" data-id="${esc(`${plan.id}|${s.key}`)}">Skip or move</button>
+        <button type="button" class="link small" data-action="start-flow">Other workout</button>
+      </div>
+    </section>`;
+}
+
 function homeTodayCard(items, today) {
+  const planned = todaysPlannedSessions(sKey(today));
+  if (planned.length) return homePlannedCard(planned[0]);
   const doneToday = items.filter((it) => sKey(it.day) === sKey(today));
   return `
     <section class="start-hero home-today">
       <h2 class="hero-title">${doneToday.length ? 'Nice work today' : 'Ready to train?'}</h2>
       <p class="hero-sub">${doneToday.length
         ? esc(doneToday.map((it) => `${it.w.name} · ${plural(workoutSetCount(it.w), 'set')}`).join(' · '))
-        : 'No plan scheduled for today. Start a workout, or set up a program in Plans.'}</p>
+        : runningPlans(state).length ? 'Nothing planned for today. Start a workout if you feel like it.' : 'No plan scheduled for today. Start a workout, or set up a program in Plans.'}</p>
       <button type="button" class="hero-btn" data-action="start-flow">${doneToday.length ? 'Start Another Workout' : 'Start Workout'}</button>
     </section>`;
 }
@@ -139,17 +169,4 @@ function renderHome(action) {
     ${homeRecent(items, today)}
     ${homeBodyWeight()}
     ${!items.length && !weighIns().length ? '<p class="stats-note">Your week, recent training and body-weight trend appear here as you log them.</p>' : ''}`;
-}
-
-/* ---------- Plans (placeholder until programs arrive) ---------- */
-
-function renderPlans() {
-  return `
-    <div class="card card-pad plans-soon" style="margin-top:12px">
-      <div class="plans-soon-title">Programs and plans</div>
-      <p>Multi-week strength programs and goal-based plans (running first) are coming in the next updates.
-      They will schedule your sessions here and on Home, and use the same workout logger.</p>
-      <p>Until then, your workout templates are on the Train tab.</p>
-      <button type="button" class="btn secondary" data-tab="workout">Go to Train</button>
-    </div>`;
 }
