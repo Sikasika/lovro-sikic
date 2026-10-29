@@ -627,7 +627,8 @@ const signedNum = (v, f = fmtNum) => `${v > 0 ? '+' : '−'}${f(Math.abs(v))}`;
 /** "+2.5 kg", "+1 rep", "+2.5 kg, −1 rep", "same" — never "better" or "worse". */
 function deltaText(dl) {
   const parts = [];
-  if (dl.dw != null && Math.abs(dl.dw) > 1e-6) parts.push(`${signedNum(dl.dw, fmtWeight)} ${unit()}`);
+  // Differences that round to 0 in the display unit count as unchanged.
+  if (dl.dw != null && Math.abs(toDisplayWeight(dl.dw)) >= 0.05) parts.push(`${signedNum(dl.dw, fmtWeight)} ${unit()}`);
   if (dl.dr) parts.push(`${dl.dr > 0 ? '+' : '−'}${Math.abs(dl.dr)} rep${Math.abs(dl.dr) === 1 ? '' : 's'}`);
   return parts.length ? parts.join(', ') : 'same';
 }
