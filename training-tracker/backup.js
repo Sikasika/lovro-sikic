@@ -4,11 +4,11 @@
    Backup and restore. Everything stays on the device: a backup
    is a .json file the user saves (Files, AirDrop, email, ...).
 
-   Backup file format 1:
+   Backup file format 1 (no plans) or 2 (contains plans; same layout):
    {
      "app": "training-tracker",
      "kind": "backup",
-     "format": 1,                       // layout of this file
+     "format": 1 | 2,                   // 2 when the backup contains plans (see below)
      "schemaVersion": 2,                // version of the data inside
      "exportedAt": "2026-10-28T17:00:00.000Z",
      "counts": { "workouts": 12, "templates": 2, "exercises": 40, "bodyweights": 30, "plans": 1 },
@@ -40,10 +40,18 @@
    that aren't there are removed, and since a session's status is always worked out from
    the workouts actually present, a missing workout can never show as a completed session.
 
+   Format 2: a backup that contains plans is marked format 2, otherwise it stays format 1.
+   App versions before plans (v21 and earlier) refuse any format above 1 with "made by a
+   newer version… update the app" and change nothing, so they can never restore such a file
+   while silently dropping its plans. Backups without plans remain readable by them. This
+   app accepts formats 1 and 2; a format-2 file without its plan list is refused as incomplete.
+
    Loaded before app.js; uses its globals only when called.
    ========================================================= */
 
-const BACKUP_FORMAT = 1;
+/** Highest format this version can restore. Exports use 1, or 2 when there are plans. */
+const BACKUP_FORMAT = 2;
+const BACKUP_FORMAT_PLANS = 2;
 /** Copy of the data as it was before the last restore or erase, for "Undo last restore". */
 const BEFORE_RESTORE_KEY = 'training-tracker.v1.before-restore';
 const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
@@ -64,7 +72,7 @@ function buildBackup(st = state) {
   return {
     app: 'training-tracker',
     kind: 'backup',
-    format: BACKUP_FORMAT,
+    format: data.plans.length ? BACKUP_FORMAT_PLANS : 1,
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     counts: { workouts: data.workouts.length, templates: data.templates.length, exercises: data.exercises.length, bodyweights: data.bodyweights.length, plans: data.plans.length },
@@ -153,6 +161,9 @@ function validateBackup(parsed) {
     return fail('This backup was made by a newer version of the app. Update the app (close and reopen it with internet) and try again.');
   }
   const src = isObj(parsed.data) ? parsed.data : parsed;
+  if (typeof parsed.format === 'number' && parsed.format >= BACKUP_FORMAT_PLANS && !Array.isArray(src.plans)) {
+    return fail('The file looks incomplete: it is marked as containing plans, but the plan list is missing.');
+  }
   const schema = Number(parsed.schemaVersion ?? src.schemaVersion) || 1;
   if (schema > SCHEMA_VERSION) {
     return fail('This backup uses a newer data format than this version of the app. Update the app (close and reopen it with internet) and try again.');

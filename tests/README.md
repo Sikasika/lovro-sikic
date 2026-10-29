@@ -25,6 +25,7 @@ Screenshots, generated backup files and `summary.txt` go to `tests/out/` (git-ig
 | logging-test, tpl-test, cardio-test | set types, notes, supersets, templates, cardio logging |
 | wedit-test, hist-test | History list and review, editing saved workouts, previous-session comparison |
 | plan-test | plan core: snapshots, session statuses, no automatic shifting, links, one strength + one sport plan, backup/restore of plans |
+| format-test | backup format 1 (no plans) vs 2 (plans): export, restore, refusals that change nothing, and the real v21 code refusing a format-2 file |
 | prog-test | progression trend and next-weight recommendation |
 | bw-test, bwi-test | body weight (Progress, Statistics, Insights) incl. backup rules |
 | exlib-test, units-test | exercise library, kg/lb and data upgrades |

@@ -58,4 +58,7 @@ Tests (Playwright, outside the app folder): `cd tests && npm install`, then
 run) and `node tests/update-test.js [ref]` (installed-app update over an older version).
 See `tests/README.md`.
 
+Backups that contain plans are format 2 (older app versions refuse them rather than drop the
+plans); backups without plans stay format 1 and restore in any version.
+
 Data is stored only on the device (localStorage). Export a backup from Settings now and then.

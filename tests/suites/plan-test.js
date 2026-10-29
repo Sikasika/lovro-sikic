@@ -201,7 +201,7 @@ const TRI_DEF = RUN_DEF.replace("'test-run'", "'test-tri'").replace("kind: 'run'
   const exp = JSON.parse(fs.readFileSync(withPlans, 'utf8'));
   const now = await st();
   check('I export: plans and links included, counted', `${exp.counts.plans}|${JSON.stringify(exp.data.plans) === JSON.stringify(now.plans)}|${exp.data.workouts.filter((w) => w.plan).length}`, '1|true|2');
-  check('I export: same format number', exp.format, 1);
+  check('I export: format 2 (contains plans)', exp.format, 2);
   const deviceState = now;
   const restore = async (file) => {
     await ev(() => closeSheet()); await wait(100);
