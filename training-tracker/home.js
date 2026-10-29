@@ -90,7 +90,7 @@ function homeActiveCard() {
 }
 
 /** Today's planned session from a running plan (start it from here), if any is still open. */
-function homePlannedCard(x) {
+function homePlannedCard(x, more = []) {
   const { plan, session: s } = x;
   const pr = planProgress(plan);
   const n = s.targets?.exercises?.length || 0;
@@ -98,18 +98,19 @@ function homePlannedCard(x) {
     <section class="start-hero home-today home-plan">
       <div class="home-plan-tag"><span class="plan-tag">Plan</span> ${esc(plan.name)} · Week ${esc(s.week)} of ${pr.weeks}</div>
       <h2 class="hero-title">Today: ${esc(s.title)}</h2>
-      <p class="hero-sub">${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
+      <p class="hero-sub">${s.targets?.run ? `${esc(runKmText(s.targets.run.km))} · about ${s.targets.run.estMin} min` : `${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}`}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
       <button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">Start ${esc(s.title)}</button>
       <div class="home-plan-links">
         <button type="button" class="link small" data-action="plan-session" data-id="${esc(`${plan.id}|${s.key}`)}">Skip or move</button>
         <button type="button" class="link small" data-action="start-flow">Other workout</button>
       </div>
+      ${more.length ? `<div class="home-plan-more">Also today: ${more.map((m) => `<button type="button" class="link small" data-action="review" data-kind="planned" data-id="${esc(`${m.plan.id}|${m.session.key}`)}">${esc(m.session.title)}</button>`).join(', ')}</div>` : ''}
     </section>`;
 }
 
 function homeTodayCard(items, today) {
   const planned = todaysPlannedSessions(sKey(today));
-  if (planned.length) return homePlannedCard(planned[0]);
+  if (planned.length) return homePlannedCard(planned[0], planned.slice(1));
   const doneToday = items.filter((it) => sKey(it.day) === sKey(today));
   return `
     <section class="start-hero home-today">

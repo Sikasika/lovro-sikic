@@ -144,6 +144,24 @@ const data = {
   await page.click('[data-action=finish]'); await wait(); await inspect('Finish with planned vs actual');
   await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
   await tab('history'); await page.click('[data-action=open-workout] >> nth=0'); await wait(); await inspect('History planned workout'); await shut();
+  // Running plan alongside the strength program
+  await tab('plans'); await page.click('[data-action=run-setup][data-id="10k"]'); await wait(); await inspect('Running setup');
+  await page.evaluate(() => { const d = (new Date().getDay() + 6) % 7; Object.assign(ui.runSetup, { days: [d, (d + 2) % 7, (d + 4) % 7], longDay: String((d + 4) % 7), recentDist: '5000', recentTime: '24:30', weekly: '20', runs: '3', longest: '9', experience: 'some', target: '50:00', maxHr: '190' }); openRunSetup('10k', true); }); await wait();
+  await inspect('Running setup filled');
+  await page.click('[data-action=rs-review]'); await wait(); await inspect('Running review');
+  await page.click('[data-action=rs-start]'); await wait(); await inspect('Plans with a running plan');
+  await page.click('.plan-card >> nth=1 >> .plan-sess >> nth=0'); await wait(); await inspect('Run session');
+  await page.click('#sheet [data-action=plan-open]'); await wait(); await inspect('Running schedule'); await shut();
+  await tab('home'); await inspect('Today with a run');
+  await page.evaluate(() => { const x = todaysPlannedSessions().find((y) => y.session.targets?.run); if (x) openReview('planned', `${x.plan.id}|${x.session.key}`); }); await wait(); await inspect('Run review');
+  if (await page.$('#sheet [data-action=begin]')) {
+    await page.click('#sheet [data-action=begin]'); await wait(600); await inspect('Planned run');
+    await page.fill('[data-field=distance][data-entry="0"][data-set="0"]', '6'); await page.fill('[data-field=duration][data-entry="0"][data-set="0"]', '36:00');
+    await page.click('[data-action=toggle-set][data-entry="0"][data-set="0"]'); await wait();
+    if (await page.isVisible('#sb-rest')) await page.click('[data-action=rest-skip]');
+    await page.click('[data-action=finish]'); await wait(); await inspect('Finish run with planned vs actual');
+    await page.click('#sheet [data-action=save-workout]:not([data-include])'); await wait(600);
+  }
   await page.screenshot({ path: `${SP}/crawl-${width}-${scheme}.png` });
   console.log(`width ${width} ${scheme}: ${screens} screens checked`);
   console.log('problems:', problems.length ? '\n  ' + [...new Set(problems)].join('\n  ') : 'none');

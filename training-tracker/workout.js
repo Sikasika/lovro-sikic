@@ -202,7 +202,7 @@ function openStartChooser() {
               <button type="button" class="tpl-main" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">
                 <span class="tpl-badge act-weights" aria-hidden="true">${esc(initials(s.title))}</span>
                 <span class="grow"><span class="tpl-name truncate">Today: ${esc(s.title)}</span>
-                  <span class="tpl-sub truncate">${esc(plan.name)} · Week ${esc(s.week)} · ${plural(s.targets?.exercises?.length || 0, 'exercise')}</span></span>
+                  <span class="tpl-sub truncate">${esc(plan.name)} · Week ${esc(s.week)} · ${s.targets?.run ? esc(runKmText(s.targets.run.km)) : plural(s.targets?.exercises?.length || 0, 'exercise')}</span></span>
                 <span class="chev" aria-hidden="true">›</span>
               </button>
             </div>`).join('')}</div>`;
@@ -281,6 +281,7 @@ function openPlannedReview(id) {
   ui.review = { kind: 'planned', id };
   const items = s.targets?.exercises || [];
   const sets = items.reduce((n, x) => n + x.sets, 0);
+  const run = s.targets?.run;
   openSheet(`
     <div class="sheet-head">
       <button type="button" class="link" data-action="close-sheet">Cancel</button>
@@ -289,17 +290,17 @@ function openPlannedReview(id) {
     </div>
     <div class="sheet-body review">
       <div class="review-name">${esc(s.title)}</div>
-      <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))} · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}</div>
+      <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${run ? '' : ` · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}`}</div>
       ${s.targets?.deload ? '<div class="plan-flag">Lighter week</div>' : ''}
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
       ${s.status === 'completed' || s.status === 'skipped' ? `<div class="finish-note"><span aria-hidden="true">i</span><div>This session is marked ${esc(s.status)}. Logging it now links the new workout to it.</div></div>` : ''}
-      <div class="card review-list">
+      ${run ? runDetailsHtml(run) : `<div class="card review-list">
         ${items.map((x) => `
           <div class="rv-ex">
             <div class="rv-name"><span class="act-dot act-weights" aria-hidden="true"></span>${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div>
             <div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div>
           </div>`).join('')}
-      </div>
+      </div>`}
     </div>
     <div class="sheet-foot">
       <button type="button" class="btn begin-btn" data-action="begin">Begin Workout</button>
@@ -456,6 +457,13 @@ function renderEntry(entry, i, letters = []) {
 /** Plan context shown above the exercises of a planned workout. */
 function planBanner(w) {
   const p = w.planned;
+  if (p.kind === 'run') {
+    return `<div class="plan-banner">
+      <div class="plan-banner-top"><span class="plan-tag">Plan</span><span class="truncate">${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''}</span></div>
+      ${p.run ? `<ol class="run-parts compact">${runPartsText(p.run).map((l) => `<li>${esc(l)}</li>`).join('')}</ol><div class="plan-banner-sub">${esc(p.run.effort || '')}</div>` : ''}
+      <div class="plan-banner-sub">Log the whole run as one set: total distance and time.</div>
+    </div>`;
+  }
   return `<div class="plan-banner">
     <div class="plan-banner-top"><span class="plan-tag">Plan</span><span class="truncate">${esc(p.planName)}${p.week ? ` · Week ${esc(p.week)}` : ''}</span></div>
     ${p.deload ? '<div class="plan-banner-sub">Lighter week: fewer sets, about 10% less weight.</div>' : '<div class="plan-banner-sub">Work in each exercise\'s target range; the recommendation uses it.</div>'}
@@ -646,6 +654,24 @@ function swapExercise(ei, exerciseId) {
 function plannedVsActualHtml(w) {
   const pva = plannedVsActual(w);
   if (!pva) return '';
+  if (pva.run) {
+    const st = { done: 'Done', partial: 'Partly done', skipped: 'Not done' }[pva.status];
+    const paceTxt = pva.pace ? `${fmtClock(pva.pace * (isImperial() ? M_PER_MI / 1000 : 1))} ${isImperial() ? '/mi' : '/km'}` : null;
+    return `
+    <div class="section-title">Planned vs actual</div>
+    <div class="card card-pad pva">
+      <div class="pva-head">${esc(w.planned.title)}${w.planned.week ? ` · Week ${esc(w.planned.week)}` : ''}</div>
+      <div class="pva-row pva-${pva.status}">
+        <span class="pva-ic" aria-hidden="true">${{ done: '✓', partial: '◐', skipped: '–' }[pva.status]}</span>
+        <span class="grow"><span class="pva-name">Distance ${pva.doneM ? esc(runKmText(pva.doneM / 1000)) : '–'} of ${esc(runKmText(pva.plannedM / 1000))}</span>
+          <span class="pva-sub">${pva.doneSec ? `Time ${fmtClock(pva.doneSec)}` : 'No time logged'}${pva.plannedSec ? ` · planned about ${Math.round(pva.plannedSec / 60)} min` : ''}${paceTxt ? ` · pace ${paceTxt}` : ''}</span></span>
+        <span class="pva-status">${st}</span>
+      </div>
+      ${pva.paceCheck ? `<div class="pva-row"><span class="pva-ic" aria-hidden="true">${pva.paceCheck === 'in range' ? '✓' : '!'}</span><span class="grow"><span class="pva-name">Pace ${pva.paceCheck === 'in range' ? 'in the easy range' : pva.paceCheck === 'faster' ? 'faster than the easy range' : 'slower than the easy range'}</span><span class="pva-sub">Planned ${esc(paceRangeText([pva.paceLo, pva.paceHi]))}${pva.paceCheck === 'faster' ? '. Easy runs work best when they are truly easy.' : ''}</span></span></div>` : ''}
+      ${!pva.paceCheck && pva.type !== 'easy' && pva.type !== 'long' && pva.doneM ? '<div class="pva-sub" style="margin-top:6px">The pace of the hard parts can\'t be checked from one total; compare with the plan by feel.</div>' : ''}
+      ${pva.others.length ? `<div class="pva-sub" style="margin-top:6px">Also logged: ${esc(pva.others.map(exName).join(', '))}</div>` : ''}
+    </div>`;
+  }
   const icon = { done: '✓', partial: '◐', skipped: '–', added: '+' };
   const statusText = { done: 'Done', partial: 'Partly done', skipped: 'Not done', added: 'Added' };
   return `

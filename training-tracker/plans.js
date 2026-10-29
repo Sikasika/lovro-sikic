@@ -94,6 +94,7 @@ function planProblems(p, label = 'A plan') {
       if (typeof s.title !== 'string') out.push(`${here} has no title.`);
       if (s.targets != null && !isPlainObject(s.targets)) out.push(`${here} has invalid targets.`);
       else if (s.targets?.exercises != null && !(Array.isArray(s.targets.exercises) && s.targets.exercises.every(validPlannedExercise))) out.push(`${here} has invalid exercise targets.`);
+      else if (s.targets?.run != null && !validRunTarget(s.targets.run)) out.push(`${here} has an invalid run.`);
     });
   });
   if (!keys.size) out.push(`${name} has no sessions.`);
@@ -104,6 +105,10 @@ const isCount = (v) => Number.isInteger(v) && v >= 1 && v <= 50;
 /** { sets, min, max } of a planned exercise: whole numbers, 1 ≤ min ≤ max ≤ 50. */
 const validTarget = (t) => isPlainObject(t) && isCount(t.sets) && isCount(t.min) && isCount(t.max) && t.min <= t.max;
 const validPlannedExercise = (x) => validTarget(x) && typeof x.name === 'string' && (x.exerciseId == null || (typeof x.exerciseId === 'string' && x.exerciseId !== ''));
+/** A planned run: total km, estimated minutes and its parts (see run-plan.js). */
+const validRunTarget = (r) => isPlainObject(r) && typeof r.km === 'number' && r.km >= 0 && r.km <= 100 && Number.isFinite(r.estMin) && Array.isArray(r.parts) && r.parts.every((p) => isPlainObject(p) && typeof p.t === 'string') &&
+  (r.pace == null || (Array.isArray(r.pace) && r.pace.length === 2 && r.pace.every((x) => Number.isFinite(x) && x > 0)));
+const validPlannedRunItem = (x) => isPlainObject(x) && x.run === true && typeof x.exerciseId === 'string' && x.exerciseId !== '' && Number.isFinite(x.distanceM) && x.distanceM >= 0;
 const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 const validPlanLink = (l) => isPlainObject(l) && typeof l.planId === 'string' && l.planId !== '' && typeof l.sessionKey === 'string' && l.sessionKey !== '';
 
@@ -138,6 +143,10 @@ function createPlan(def, answers, startDate, opts = {}) {
     weeks,
     overrides: {}
   };
+  // What the plan was built from (e.g. a running plan's fitness assessment), saved with it.
+  if (typeof def.summarize === 'function') {
+    try { plan.summary = JSON.parse(JSON.stringify(def.summarize(JSON.parse(JSON.stringify(answers || {})), startDate))); } catch (e) { /* optional */ }
+  }
   const errors = planProblems(plan, 'The plan');
   return errors.length ? { ok: false, errors } : { ok: true, plan };
 }

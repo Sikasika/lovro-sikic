@@ -25,6 +25,7 @@ function renderPlans() {
   const past = plansOf(state).filter((p) => !running.includes(p));
   const conflicts = planConflicts(state, today);
   const hasStrength = running.some((p) => planGroup(p.kind) === 'strength');
+  const hasSport = running.some((p) => planGroup(p.kind) === 'sport');
   return `
     ${conflicts.length ? `<div class="card card-pad plan-warn" role="note" style="margin-top:12px">
       <b>Sessions from two plans on the same day</b>
@@ -44,7 +45,18 @@ function renderPlans() {
           <span class="chev" aria-hidden="true">›</span>
         </button>`).join('')}
     </div>
-    <p class="tpl-hint">Running, swimming, cycling and triathlon plans are coming in later updates.</p>
+    <div class="section-title">${hasSport ? 'Running plans' : 'Start a running plan'}</div>
+    ${hasSport ? '<p class="tpl-hint" style="margin-top:0">One running plan at a time (alongside one strength program). Stop the current one to start another.</p>' : ''}
+    <div class="card">
+      ${Object.entries(RUN_GOALS).map(([id, g]) => `
+        <button type="button" class="list-item prog-lib" data-action="run-setup" data-id="${id}"${hasSport ? ' disabled' : ''}>
+          <span class="grow"><span class="prog-lib-name">${g.label} plan</span>
+            <span class="sub">For a race or a time goal · 6–16 weeks</span>
+            <span class="prog-lib-sum">Built from your current running: easy runs, a long run and (with some experience) one or two harder sessions. Paces from a recent result, or by effort.</span></span>
+          <span class="chev" aria-hidden="true">›</span>
+        </button>`).join('')}
+    </div>
+    <p class="tpl-hint">Swimming, cycling and triathlon plans are coming in later updates.</p>
     ${past.length ? `<div class="section-title">Past plans</div>
       <div class="card">${past.map((p) => {
         const pr = planProgress(p, state, today);
@@ -83,7 +95,7 @@ function planCard(plan, today) {
         <span><b>${pr.completed}</b> done</span><span><b>${pr.missed}</b> missed</span><span><b>${pr.skipped}</b> skipped</span><span><b>${pr.total - pr.due}</b> to go</span>
       </div>
       ${planUpdateAvailable(plan) ? '<div class="sub" style="margin-top:6px">A newer version of this program exists. Your schedule stays as it was when you started.</div>' : ''}
-      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}</div>
+      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}${plan.kind === 'run' ? ` · ${esc(week.label || '')} · ${esc(runKmText(runWeekDoneKm(thisWeek)))} of ${esc(runKmText(week.km || 0))}` : ''}</div>
       <div class="plan-sessions">${thisWeek.map((s) => sessionRow(plan, s)).join('')}</div>
     </section>`;
 }
@@ -91,7 +103,7 @@ function planCard(plan, today) {
 function sessionRow(plan, s) {
   return `<button type="button" class="list-item plan-sess${s.status === 'today' ? ' is-today' : ''}" data-action="plan-session" data-id="${esc(planIdAttr(plan, s))}">
     <span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span>
-      <span class="plan-day">${esc(sessionDayText(s.date))}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
+      <span class="plan-day">${esc(sessionDayText(s.date))}${s.targets?.run ? ` · ${esc(runKmText(s.targets.run.km))}` : ''}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
     ${statusChip(s)}
   </button>`;
 }
@@ -114,8 +126,9 @@ function openPlanSchedule(planId) {
     </div>
     <div class="sheet-body">
       <div class="sub" style="margin:4px 0 10px">${esc(planDatesText(plan.startDate, plan.endDate))} · ${esc(planStatusText(plan, pr, today))} · ${pr.completed} of ${plural(pr.total, 'session')} done</div>
+      ${plan.kind === 'run' && plan.summary ? runAssessmentHtml(plan.summary, plan.summary.goal) : ''}
       ${plan.weeks.map((w) => `
-        <div class="section-title">Week ${esc(w.week)}${w.deload ? ' · Lighter week' : ''}</div>
+        <div class="section-title">Week ${esc(w.week)}${plan.kind === 'run' ? ` · ${esc(w.label || '')} · ${esc(runKmText(w.km || 0))}` : w.deload ? ' · Lighter week' : ''}</div>
         <div class="card">${w.sessions.map((s) => sessionRow(plan, byKey.get(s.key))).join('')}</div>`).join('')}
       <p class="tpl-hint">Missed sessions stay where they were; nothing is moved for you. Open a session to start, skip or move it.</p>
       <div class="btn-row">
@@ -161,9 +174,9 @@ function openPlanSession(id) {
       <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${s.moved ? ` (moved from ${esc(sessionDayText(s.originalDate))})` : ''}</div>
       <div style="margin:8px 0">${statusChip(s)}${s.targets?.deload ? ' <span class="plan-flag">Lighter week</span>' : ''}</div>
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
-      <div class="card review-list">
+      ${s.targets?.run ? runDetailsHtml(s.targets.run) : `<div class="card review-list">
         ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div><div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div></div>`).join('')}
-      </div>
+      </div>`}
       <div class="btn-col">${actions.join('')}</div>
       ${canMove ? `
         <div class="section-title">Move to another day</div>
@@ -265,6 +278,7 @@ function planResult(r, okText) {
 
 /** Plans actions. Returns true if handled. */
 function handlePlanAction(action, el) {
+  if (handleRunSetupAction(action, el)) return true;
   const id = el.dataset.id;
   switch (action) {
     case 'plan-setup': openProgramSetup(id); break;
@@ -339,4 +353,236 @@ document.addEventListener('change', (ev) => {
 /** Today's sessions that can still be started: [{ plan, session }]. */
 function todaysPlannedSessions(today = todayKey()) {
   return sessionsOn(state, today, today).filter((x) => x.session.status === 'today');
+}
+
+/* ---------- Running plans: setup, review, start ---------- */
+
+const RUN_RECENT_DISTANCES = [[1609, '1 mile'], [3000, '3 km'], [5000, '5 km'], [10000, '10 km'], [21097, 'Half marathon']];
+const RUN_AGO = [['month', 'Within the last month'], ['quarter', '1–3 months ago'], ['half', '3–6 months ago'], ['older', 'More than 6 months ago']];
+const RUN_EXPERIENCE = [['new', 'New', 'Not running yet, or under 6 months'], ['some', 'Some', '6 months to 2 years of regular running'], ['experienced', 'Experienced', '2+ years of regular running']];
+const RUN_LIMITS = [['none', 'None'], ['niggle', 'A niggle'], ['injury', 'Current injury']];
+const distFactor = () => (isImperial() ? M_PER_MI / 1000 : 1);
+const optNum = (v) => { const n = num(String(v ?? '').replace(',', '.')); return n == null ? null : n; };
+
+/** The answers a running plan is built from, from the setup form (distances typed in the selected unit). */
+function runAnswers(u) {
+  const km = (v) => { const n = optNum(v); return n == null ? null : Math.round(n * distFactor() * 10) / 10; };
+  const t = String(u.target || '').trim();
+  return {
+    distance: u.distance,
+    targetSec: t ? (parseClock(t) || -1) : null,
+    eventDate: u.hasEvent ? (u.eventDate || '') : null,
+    weeks: u.hasEvent ? null : +u.weeks,
+    recent: u.recentDist ? { distanceM: +u.recentDist, timeSec: parseClock(u.recentTime) || null, ago: u.recentAgo } : null,
+    weeklyKm: km(u.weekly),
+    runsPerWeek: u.runs === '' || u.runs == null ? null : +u.runs,
+    longestKm: km(u.longest),
+    days: [...u.days].sort((a, b) => a - b),
+    longDay: u.longDay === '' || u.longDay == null ? null : +u.longDay,
+    experience: u.experience || null,
+    limitation: u.limitation || 'none',
+    ...(u.note && u.note.trim() ? { limitationNote: u.note.trim().slice(0, 300) } : {}),
+    maxHr: optNum(u.maxHr) == null ? null : Math.round(optNum(u.maxHr))
+  };
+}
+
+function openRunSetup(distance, keep) {
+  if (!keep || !ui.runSetup) {
+    ui.runSetup = { distance, start: todayKey(), hasEvent: false, eventDate: '', weeks: 8, target: '', recentDist: '', recentTime: '', recentAgo: 'month',
+      weekly: '', runs: '', longest: '', days: [1, 3, 5, 6], longDay: '6', experience: '', limitation: 'none', note: '', maxHr: '' };
+  }
+  const u = ui.runSetup;
+  const du = isImperial() ? 'mi' : 'km';
+  const seg = (key, opts) => `<div class="segmented" role="group">${opts.map(([v, l]) => `<button type="button" data-action="rs-set" data-k="${key}" data-v="${v}" class="${String(u[key]) === String(v) ? 'on' : ''}" aria-pressed="${String(u[key]) === String(v)}">${l}</button>`).join('')}</div>`;
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Cancel</button>
+      <h2>Running Plan</h2>
+      <span style="width:52px"></span>
+    </div>
+    <div class="sheet-body plan-setup run-setup">
+      <p class="plan-objective">A few questions about your running now. Leave out what you don't know: the plan says what it assumed, and paces are only given when a recent result supports them.</p>
+      <div class="ps-field"><span class="ps-label">Goal</span>${seg('distance', [['5k', '5K'], ['10k', '10K']])}</div>
+      <div class="ps-field"><span class="ps-label">Race</span>${seg('hasEvent', [['true', 'I have a race date'], ['false', 'No race']])}</div>
+      ${u.hasEvent
+        ? `<label class="ps-field"><span class="ps-label">Race date</span><input type="date" data-rs="eventDate" value="${esc(u.eventDate)}" min="${esc(todayKey())}"></label>`
+        : `<label class="ps-field"><span class="ps-label">Plan length</span><select data-rs="weeks">${RUN_WEEK_OPTIONS.map((n) => `<option value="${n}"${+u.weeks === n ? ' selected' : ''}>${n} weeks</option>`).join('')}</select></label>`}
+      <label class="ps-field"><span class="ps-label">Start date</span><input type="date" data-rs="start" value="${esc(u.start)}" min="${esc(todayKey())}"></label>
+      <label class="ps-field"><span class="ps-label">Target time (optional)</span><input type="text" inputmode="numeric" data-rs="target" value="${esc(u.target)}" placeholder="e.g. 27:30"></label>
+
+      <div class="section-title">Recent race or time trial</div>
+      <label class="ps-field"><span class="ps-label">Distance</span><select data-rs="recentDist" data-rerender="1"><option value="">None / not sure</option>${RUN_RECENT_DISTANCES.map(([m, l]) => `<option value="${m}"${String(u.recentDist) === String(m) ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${u.recentDist ? `
+        <label class="ps-field"><span class="ps-label">Time</span><input type="text" inputmode="numeric" data-rs="recentTime" value="${esc(u.recentTime)}" placeholder="mm:ss or h:mm:ss"></label>
+        <label class="ps-field"><span class="ps-label">When</span><select data-rs="recentAgo">${RUN_AGO.map(([v, l]) => `<option value="${v}"${u.recentAgo === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : '<p class="tpl-hint" style="margin-top:6px">Without a result the plan is effort-based (no pace numbers).</p>'}
+
+      <div class="section-title">Your running now</div>
+      <label class="ps-field"><span class="ps-label">Distance per week (${du}, average)</span><input type="text" inputmode="decimal" data-rs="weekly" value="${esc(u.weekly)}" placeholder="e.g. 15"></label>
+      <label class="ps-field"><span class="ps-label">Runs per week</span><select data-rs="runs"><option value="">Not sure</option>${[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}"${String(u.runs) === String(n) ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="ps-field"><span class="ps-label">Longest run, last month (${du})</span><input type="text" inputmode="decimal" data-rs="longest" value="${esc(u.longest)}" placeholder="e.g. 7"></label>
+      <div class="ps-field"><span class="ps-label">Experience</span>${seg('experience', RUN_EXPERIENCE.map(([v, l]) => [v, l]))}
+        <div class="sub">${esc((RUN_EXPERIENCE.find(([v]) => v === u.experience) || [, , 'Choose the closest'])[2])}</div></div>
+
+      <div class="section-title">When you can run</div>
+      <div class="ps-field"><span class="ps-label">Running days (the others are rest days)</span>
+        <div class="day-picker" role="group" aria-label="Running days">
+          ${WEEKDAYS.map((d, i) => `<button type="button" data-action="rs-day" data-d="${i}" class="${u.days.includes(i) ? 'on' : ''}" aria-pressed="${u.days.includes(i)}">${d}</button>`).join('')}
+        </div>
+        <div class="sub">${u.days.length} days · the plan uses up to ${u.experience === 'experienced' ? (u.distance === '10k' ? 6 : 5) : u.experience === 'some' ? 4 : 3} of them</div></div>
+      <label class="ps-field"><span class="ps-label">Long run on</span><select data-rs="longDay"><option value="">Any day</option>${u.days.slice().sort((a, b) => a - b).map((d) => `<option value="${d}"${String(u.longDay) === String(d) ? ' selected' : ''}>${WEEKDAYS[d]}</option>`).join('')}</select></label>
+
+      <div class="section-title">Health</div>
+      <div class="ps-field"><span class="ps-label">Injuries or limitations</span>${seg('limitation', RUN_LIMITS)}</div>
+      ${u.limitation !== 'none' ? `<label class="ps-field"><span class="ps-label">Details (optional)</span><input type="text" data-rs="note" value="${esc(u.note)}" placeholder="e.g. sore left calf"></label>` : ''}
+      <label class="ps-field"><span class="ps-label">Maximum heart rate (optional, only if measured)</span><input type="text" inputmode="numeric" data-rs="maxHr" value="${esc(u.maxHr)}" placeholder="e.g. 188"></label>
+      <p class="tpl-hint">Heart-rate guidance is shown only with a measured maximum (age formulas are too unreliable).</p>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn" data-action="rs-review">Review Plan</button>
+    </div>`);
+}
+
+function runAssessmentHtml(sum, distance) {
+  const f = sum.fitness;
+  const g = sum.goalCheck || { status: 'none' };
+  const label = RUN_GOALS[distance]?.label || '';
+  const paceRows = f.paces ? [['Easy runs', 'easy'], ['Long run', 'long'], ['Tempo', 'tempo'], [distance === '10k' ? '10K-pace intervals' : '5K-pace intervals', distance === '10k' ? 'i10k' : 'i5k']] : [];
+  const conf = { good: 'good', fair: 'fair: treat as a guide' }[f.confidence];
+  return `
+    <div class="section-title">Your current fitness</div>
+    <div class="card card-pad run-fit">
+      ${f.est ? `<div><b>Estimated now:</b> 5K ${fmtClock(f.est['5k'])} · 10K ${fmtClock(f.est['10k'])}</div>
+        <div class="sub">From your recent result · confidence ${esc(conf)}</div>
+        <div class="pace-table">${paceRows.map(([l, k]) => `<div><span>${esc(l)}</span><b>${esc(paceRangeText(f.paces[k]))}</b></div>`).join('')}</div>`
+        : `<div><b>Effort-based plan</b></div><div class="sub">No recent race or time-trial result, so there are no pace numbers. Every run says how it should feel.</div>`}
+      ${f.hr ? `<div class="pace-table">${[['Easy', 'easy'], ['Tempo', 'tempo'], ['Intervals', distance === '10k' ? 'i10k' : 'i5k']].map(([l, k]) => `<div><span>${l} heart rate</span><b>${f.hr[k][0]}–${f.hr[k][1]} bpm</b></div>`).join('')}</div>` : ''}
+    </div>
+    ${g.status !== 'none' ? `<div class="card card-pad goal-check goal-${g.status}" style="margin-top:10px"><b>Target ${label}: ${{ realistic: 'realistic', ambitious: 'ambitious', unlikely: 'unlikely in this time', reached: 'already within reach', unknown: 'can\'t be checked' }[g.status]}</b><div>${esc(g.text)}</div></div>` : ''}
+    ${(sum.assumptions || []).length ? `<div class="card card-pad run-assumed" style="margin-top:10px"><b>Assumed (not from your answers)</b>${sum.assumptions.map((m) => `<div>• ${esc(m)}</div>`).join('')}</div>` : ''}
+    ${(sum.warnings || []).map((m) => `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(m)}</div></div>`).join('')}
+    ${(sum.notes || []).map((m) => `<div class="finish-note"><span aria-hidden="true">i</span><div>${esc(m)}</div></div>`).join('')}`;
+}
+
+/** Weeks overview: week, kind, distance, long run. */
+function runWeeksTable(weeks) {
+  return `<div class="card run-weeks">${weeks.map((w) => {
+    const long = w.sessions.find((s) => s.type === 'long' || s.type === 'race');
+    return `<div class="run-week-row"><span>Week ${w.week}</span><span class="grow">${esc(w.label || '')}</span><span>${esc(runKmText(w.km))}</span><span class="sub">${long ? (long.type === 'race' ? 'Race' : `Long ${esc(runKmText(long.targets.run.km))}`) : ''}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function openRunReview() {
+  const u = ui.runSetup;
+  if (!u) return;
+  const a = runAnswers(u);
+  const as = assessRun(a, u.start);
+  const head = `<div class="sheet-head">
+      <button type="button" class="link" data-action="rs-back">Back</button>
+      <h2>Review Plan</h2>
+      <span style="width:52px"></span>
+    </div>`;
+  if (!as.ok) {
+    openSheet(`${head}<div class="sheet-body">
+      <div class="review-name">${esc(RUN_GOALS[u.distance].label)} plan</div>
+      <div class="finish-note warn" role="alert"><span aria-hidden="true">!</span><div><b>Some answers need a look before a plan can be built:</b>${as.problems.map((m) => `<div>• ${esc(m)}</div>`).join('')}</div></div>
+      <div class="btn-row"><button type="button" class="btn secondary" data-action="rs-back">Back to Questions</button></div>
+    </div>`);
+    return;
+  }
+  const def = PLAN_LIBRARY.get(`run-${u.distance}`);
+  const created = createPlan(def, a, as.schedule.start, { name: runPlanName(a) });
+  const can = canStartPlan(state, 'run');
+  const trial = created.ok ? { ...state, plans: [...plansOf(state), created.plan] } : state;
+  const conflicts = created.ok ? planConflicts(trial).filter((c) => c.sessions.some((x) => x.planId === created.plan.id)) : [];
+  const p = created.ok ? created.plan : null;
+  const sessions = p ? p.weeks.reduce((n, w) => n + w.sessions.length, 0) : 0;
+  openSheet(`${head}
+    <div class="sheet-body plan-review">
+      <div class="review-name">${esc(p ? p.name : runPlanName(a))}</div>
+      ${p ? `<div class="review-sub">${esc(planDatesText(p.startDate, p.endDate))} · ${plural(p.weeks.length, 'week')} · ${plural(sessions, 'run')} · up to ${as.plan.runs} a week</div>` : ''}
+      ${!can.ok ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(can.error)}</div></div>` : ''}
+      ${!created.ok ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(created.errors.join(' '))}</div></div>` : ''}
+      ${p ? runAssessmentHtml(p.summary, a.distance) : ''}
+      ${conflicts.length ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>Same day as your strength program:</b> ${esc(conflicts.map((c) => sessionDayText(c.date)).join(', '))}. Doing both is possible (strength after the run, or on easy days); you can move sessions later.</div></div>` : ''}
+      ${p ? `<div class="section-title">Weeks</div>${runWeeksTable(p.weeks)}
+        ${p.weeks.map((w) => `
+          <div class="section-title">Week ${w.week} · ${esc(w.label)} · ${esc(runKmText(w.km))}</div>
+          <div class="card">${w.sessions.map((s) => `<div class="list-item plan-sess static"><span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span><span class="plan-day">${esc(sessionDayText(s.date))}</span></span><span class="plan-meta">${esc(runKmText(s.targets.run.km))}</span></div>`).join('')}</div>`).join('')}` : ''}
+      <p class="tpl-hint">General guidance, not medical advice. The schedule is saved as it is now when you start; missed runs are never moved for you. Stop and get advice if something hurts.</p>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn begin-btn" data-action="rs-start"${p && can.ok ? '' : ' disabled'}>Start Plan</button>
+    </div>`);
+}
+
+const runPlanName = (a) => `${RUN_GOALS[a.distance].label} plan${a.eventDate ? ` · race ${sessionDayText(a.eventDate)}` : ''}`;
+
+/** Start the running plan from the setup answers. Returns { ok, plan?, error? }. */
+function startRunPlan(a, start, st = state, today = todayKey()) {
+  const as = assessRun(a, start, today);
+  if (!as.ok) return { ok: false, error: as.problems.join(' ') };
+  const created = createPlan(PLAN_LIBRARY.get(`run-${a.distance}`), a, as.schedule.start, { name: runPlanName(a) });
+  if (!created.ok) return { ok: false, error: created.errors.join(' ') };
+  resolveProgramExercises(created.plan, st);
+  const r = addPlan(st, created.plan, today);
+  return r.ok ? { ok: true, plan: created.plan, conflicts: r.conflicts } : r;
+}
+
+function handleRunSetupAction(action, el) {
+  const u = ui.runSetup;
+  switch (action) {
+    case 'run-setup': openRunSetup(el.dataset.id); break;
+    case 'rs-set': {
+      const v = el.dataset.v;
+      u[el.dataset.k] = v === 'true' ? true : v === 'false' ? false : v;
+      openRunSetup(u.distance, true);
+      break;
+    }
+    case 'rs-day': {
+      const d = +el.dataset.d;
+      u.days = u.days.includes(d) ? u.days.filter((x) => x !== d) : [...u.days, d];
+      if (u.longDay !== '' && !u.days.includes(+u.longDay)) u.longDay = '';
+      openRunSetup(u.distance, true);
+      break;
+    }
+    case 'rs-review': openRunReview(); break;
+    case 'rs-back': openRunSetup(u.distance, true); break;
+    case 'rs-start': {
+      const r = startRunPlan(runAnswers(u), u.start);
+      if (!r.ok) { alert(r.error); break; }
+      save();
+      ui.runSetup = null;
+      closeSheet();
+      ui.tab = 'plans';
+      render();
+      window.scrollTo(0, 0);
+      toast(`${r.plan.name} started`);
+      break;
+    }
+    default: return false;
+  }
+  return true;
+}
+
+// Typing in the running setup: keep the answers without redrawing (the keyboard stays open).
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (!ui.runSetup || !t.dataset?.rs) return;
+  ui.runSetup[t.dataset.rs] = t.value;
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (!ui.runSetup || !t.dataset?.rs) return;
+  ui.runSetup[t.dataset.rs] = t.value;
+  if (t.dataset.rerender) openRunSetup(ui.runSetup.distance, true);
+});
+
+/** Distance run this week in sessions done with a linked workout (km). */
+function runWeekDoneKm(sessions) {
+  let m = 0;
+  for (const s of sessions) {
+    const w = s.workoutId && state.workouts.find((x) => x.id === s.workoutId);
+    if (w) w.entries.forEach((e) => completedSets(e).forEach((x) => { m += num(x.distance) || 0; }));
+  }
+  return m / 1000;
 }

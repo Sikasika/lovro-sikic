@@ -1203,3 +1203,30 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .wk-day.planned { box-shadow: inset 0 0 0 1.5px var(--muted); }
 .wk-day.today.planned { box-shadow: inset 0 0 0 2px var(--accent); }
 .wk-day.missed { background: rgba(215, 38, 56, 0.1); }
+
+/* ---------- Running plans ---------- */
+.run-detail { font-size: 15px; line-height: 1.45; }
+.run-parts { margin: 0 0 8px; padding-left: 20px; }
+.run-parts li { margin: 2px 0; }
+.run-parts.compact { margin: 6px 0 2px; font-size: 14px; }
+.run-guide { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; font-size: 14px; }
+.run-guide .rec-k { flex: none; }
+.run-total { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.run-fit { font-size: 15px; line-height: 1.45; }
+.pace-table { margin-top: 8px; border-top: 0.5px solid var(--separator); }
+.pace-table div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 0.5px solid var(--separator); font-size: 15px; }
+.pace-table b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.goal-check { font-size: 15px; line-height: 1.45; border-left: 4px solid var(--muted); }
+.goal-check.goal-realistic, .goal-check.goal-reached { border-left-color: var(--success); }
+.goal-check.goal-ambitious { border-left-color: var(--accent); }
+.goal-check.goal-unlikely { border-left-color: var(--danger); }
+.run-assumed { font-size: 14px; line-height: 1.45; border-left: 4px solid var(--accent); }
+.run-weeks .run-week-row { display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border-bottom: 0.5px solid var(--separator); font-size: 15px; }
+.run-weeks .run-week-row:last-child { border-bottom: 0; }
+.run-weeks .run-week-row > span:first-child { flex: none; width: 64px; font-weight: 600; }
+.run-weeks .run-week-row .grow { min-width: 0; color: var(--muted); }
+.run-weeks .run-week-row .sub { flex: none; }
+.run-setup .segmented { flex-wrap: wrap; }
+.run-setup input[type="text"] { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 10px; border: 0; background: var(--card); color: var(--text); }
+.home-plan-more { margin-top: 8px; text-align: center; font-size: 14px; color: rgba(242, 246, 252, 0.78); }
+.home-plan-more .link { color: #fff; }

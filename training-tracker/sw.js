@@ -7,7 +7,7 @@
 //   are never mixed;
 // - changing CACHE (on every release) makes browsers install the new version;
 //   the page then shows a "New version ready" notice.
-const CACHE = 'training-tracker-v24';
+const CACHE = 'training-tracker-v25';
 const ASSETS = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const ASSETS = [
   './bodyweight.js',
   './plans.js',
   './programs.js',
+  './run-plan.js',
   './plans-ui.js',
   './home.js',
   './app.js',

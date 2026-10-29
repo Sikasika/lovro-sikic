@@ -27,6 +27,17 @@ Features:
   Each session can be started (opens the normal logger), skipped, moved (only that session;
   nothing shifts automatically) or marked done; stop or delete a program. Today shows today's
   planned session; Train's Start Workout lists it first.
+- Running plans (5K, 10K): questions about the goal (optional target time), race date or
+  length, a recent race/time trial, current weekly distance, runs and longest run, running
+  days, experience, injuries and (optional) measured max heart rate. Partial answers are
+  filled in conservatively and labelled. Fitness is estimated from the recent result (Riegel);
+  training paces come from it, never from the target, which is only checked (realistic /
+  ambitious / unlikely, with the numbers). No result: an effort-based plan. Schedules build
+  from current volume (≤10% or 1.5 km a week, recovery every 4th week, long run 30–50% of
+  the week and capped, hard sessions only with enough base), taper and race on the race day,
+  or end with an optional time trial. Full review before starting; runs open the logger with
+  their steps, paces/effort and a distance/time target; planned vs actual distance, time and
+  (easy runs) pace. One running plan alongside one strength program; same-day warnings
 - Planned workouts: per-exercise targets (sets × rep range), swap an exercise for the day
   (recorded as "instead of …"), planned vs actual on the Finish screen and in History. The
   next-weight recommendation uses the program's rep range; 8–12 everywhere else
@@ -53,7 +64,8 @@ Features:
 Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
 calculations), `backup.js` (backup format and restore), `workout.js` (Train tab: start,
 live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `plans.js` (plan data, session
-statuses, links), `programs.js` (built-in programs, schedules, planned workouts),
+statuses, links), `programs.js` (built-in programs, schedules, planned workouts), `run-plan.js`
+(running fitness, paces and plan generator),
 `plans-ui.js` (Plans tab), `home.js` (Today, Plans, Progress sections), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 
