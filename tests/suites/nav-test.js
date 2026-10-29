@@ -43,6 +43,11 @@ const base = (extra = {}) => ({ schemaVersion: 2, cardioExercisesAdded: true, ac
   check('A week summary empty', await page.innerText('.wk-sum'), 'No workouts yet this week');
   check('A no body-weight block without weigh-ins', await page.$('#view .home-bw'), null);
   check('A Today fits the screen', await noOverflow(), true);
+  await go(page, 'progress'); await wait();
+  check('A Overview empty state points to Body', `${(await view()).includes('Finish a workout to see your workout progress.')}|${(await view()).includes('Weigh-ins are under Body.')}|${await page.$('#view #bw-quick')}|${await noOverflow()}`, 'true|true|null|true');
+  await go(page, 'body'); await wait();
+  check('A Body: weigh-in entry with no weigh-ins', `${await page.isVisible('#bw-quick')}|${await page.innerText('[data-action=bw-log-today]')}`, 'true|Log today');
+  await go(page, 'home'); await wait();
 
   /* B. Existing data: workout today, weigh-ins */
   const today = at(0, 12);

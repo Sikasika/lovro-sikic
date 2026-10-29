@@ -24,6 +24,7 @@ Screenshots, generated backup files and `summary.txt` go to `tests/out/` (git-ig
 | wk-test | Train tab: start flow, set ticking, finish summary, discard, rest timer |
 | logging-test, tpl-test, cardio-test | set types, notes, supersets, templates, cardio logging |
 | wedit-test, hist-test | History list and review, editing saved workouts, previous-session comparison |
+| plan-test | plan core: snapshots, session statuses, no automatic shifting, links, one strength + one sport plan, backup/restore of plans |
 | prog-test | progression trend and next-weight recommendation |
 | bw-test, bwi-test | body weight (Progress, Statistics, Insights) incl. backup rules |
 | exlib-test, units-test | exercise library, kg/lb and data upgrades |

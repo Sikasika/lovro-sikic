@@ -20,7 +20,10 @@ Tabs: **Today** · **Train** · **Plans** · **Progress** (Overview, Insights, S
 Features:
 - Today: the workout in progress (Continue) or Start Workout, this week Mon–Sun, the latest
   workout with up to two insights, and the body-weight trend
-- Plans: placeholder; strength programs and goal plans come next
+- Plans: placeholder screen. The plan core is in place (`plans.js`): schedules saved as a
+  snapshot when a plan starts, session status worked out from linked workouts or a skip /
+  done-by-hand override, one-session moves (nothing shifts automatically), one strength
+  program plus one sport plan at a time, plans in backups. Programs and plan setup come next
 - Train: Start Workout → pick a template or recent workout → review → Begin (the clock
   starts only then), or start empty. Live session with a sticky bar (clock, progress,
   rest timer, Finish), large ✓ targets, "previous" column, planned targets, warm-up/working/drop
@@ -43,8 +46,8 @@ Features:
 
 Files: `index.html`, `styles.css`, `stats.css`, `calc.js` (shared data rules and
 calculations), `backup.js` (backup format and restore), `workout.js` (Train tab: start,
-live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `home.js` (Today, Plans, Progress
-sections), `app.js` (other screens, editors, events), `stats.js`
+live session, finishing, rest timer), `bodyweight.js` (weigh-ins, target, weight charts), `plans.js` (plan data, session
+statuses, links), `home.js` (Today, Plans, Progress sections), `app.js` (other screens, editors, events), `stats.js`
 (Statistics tab), `sw.js` (offline cache), `manifest.webmanifest`, `icons/`.
 
 Releasing a change: bump `CACHE` in `training-tracker/sw.js` (and add any new file to

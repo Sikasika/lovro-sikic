@@ -61,7 +61,7 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   const exp = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
   check('filename', dl.suggestedFilename(), 'training-backup-2026-10-28.json');
   check('format header', `${exp.app}|${exp.kind}|${exp.format}|${exp.schemaVersion}|${!!exp.exportedAt}`, 'training-tracker|backup|1|2|true');
-  check('counts', JSON.stringify(exp.counts), JSON.stringify({ workouts: 2, templates: 2, exercises: 6, bodyweights: 0 }));
+  check('counts', JSON.stringify(exp.counts), JSON.stringify({ workouts: 2, templates: 2, exercises: 6, bodyweights: 0, plans: 0 }));
   check('backup holds everything (incl. new fields + workout in progress)', pick(exp.data), pick(original));
   await wait(200);
   check('success message', await lastToast(), 'Backup exported · 2 workouts');

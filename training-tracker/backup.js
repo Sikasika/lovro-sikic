@@ -11,11 +11,12 @@
      "format": 1,                       // layout of this file
      "schemaVersion": 2,                // version of the data inside
      "exportedAt": "2026-10-28T17:00:00.000Z",
-     "counts": { "workouts": 12, "templates": 2, "exercises": 40, "bodyweights": 30 },
+     "counts": { "workouts": 12, "templates": 2, "exercises": 40, "bodyweights": 30, "plans": 1 },
      "data": {
        "exercises": [...], "workouts": [...], "templates": [...],
        "active": null | { workout in progress },
        "bodyweights": [{ "id", "date": "YYYY-MM-DD", "kg", "note"? }],
+       "plans": [{ plan, see plans.js }],  // workouts done for a plan carry "plan": { planId, sessionKey }
        "settings": { "unit": "kg" | "lb", "rest": 90, "weightGoal"?: { "targetKg", "startKg", "startDate" } },
        "cardioExercisesAdded": true
      }
@@ -32,6 +33,12 @@
    weigh-ins already on the device. The target weight follows the same rule.
    "Undo last restore" brings back exactly the saved copy (if that copy was
    saved before weight tracking existed, the weigh-ins here are kept).
+
+   Plans on restore follow the same rule: a backup with plans replaces the plans here; a
+   backup without any keeps the plans on this device. Afterwards plan links are checked
+   against the restored workouts (reconcilePlans in plans.js): links to plans or sessions
+   that aren't there are removed, and since a session's status is always worked out from
+   the workouts actually present, a missing workout can never show as a completed session.
 
    Loaded before app.js; uses its globals only when called.
    ========================================================= */
@@ -50,6 +57,7 @@ function buildBackup(st = state) {
     templates: st.templates || [],
     active: st.active || null,
     bodyweights: Array.isArray(st.bodyweights) ? st.bodyweights : [],
+    plans: Array.isArray(st.plans) ? st.plans : [],
     settings: st.settings,
     cardioExercisesAdded: !!st.cardioExercisesAdded
   };
@@ -59,7 +67,7 @@ function buildBackup(st = state) {
     format: BACKUP_FORMAT,
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    counts: { workouts: data.workouts.length, templates: data.templates.length, exercises: data.exercises.length, bodyweights: data.bodyweights.length },
+    counts: { workouts: data.workouts.length, templates: data.templates.length, exercises: data.exercises.length, bodyweights: data.bodyweights.length, plans: data.plans.length },
     data
   };
 }
@@ -153,13 +161,15 @@ function validateBackup(parsed) {
   if (!Array.isArray(src.workouts)) errors.push('The workout list is missing.');
   if (src.templates != null && !Array.isArray(src.templates)) errors.push('The template list is not in the expected format.');
   if (src.bodyweights != null && !Array.isArray(src.bodyweights)) errors.push('The weigh-in list is not in the expected format.');
+  if (src.plans != null && !Array.isArray(src.plans)) errors.push('The plan list is not in the expected format.');
   if (errors.length) return { ok: false, errors };
 
   if (isObj(parsed.counts)) {
     const c = parsed.counts;
     if ((c.workouts != null && c.workouts !== src.workouts.length) || (c.exercises != null && c.exercises !== src.exercises.length) ||
         (c.templates != null && c.templates !== (src.templates || []).length) ||
-        (c.bodyweights != null && c.bodyweights !== (src.bodyweights || []).length)) {
+        (c.bodyweights != null && c.bodyweights !== (src.bodyweights || []).length) ||
+        (c.plans != null && c.plans !== (src.plans || []).length)) {
       errors.push('The file looks incomplete: it contains fewer items than it says it should.');
     }
   }
@@ -239,6 +249,17 @@ function validateBackup(parsed) {
     if (w.note != null && typeof w.note !== 'string') errors.push(`${label} has an invalid note.`);
   });
 
+  // Plans (optional; older backups have none). Links from workouts are checked after restore.
+  const planIds = new Set();
+  (src.plans || []).forEach((p, i) => {
+    planProblems(p, `Plan ${i + 1}`).forEach((m) => errors.push(m));
+    if (isObj(p) && typeof p.id === 'string') {
+      if (planIds.has(p.id)) errors.push(`Plan ${i + 1} appears twice.`);
+      planIds.add(p.id);
+    }
+  });
+  const badLinks = [...src.workouts, ...(src.active ? [src.active] : [])].filter((w) => isObj(w) && w.plan != null && !validPlanLink(w.plan)).length;
+
   // Settings
   if (src.settings != null && !isObj(src.settings)) errors.push('The settings are not in the expected format.');
   else if (src.settings) {
@@ -258,6 +279,7 @@ function validateBackup(parsed) {
   }
 
   if (missingRefs) warnings.push(`${missingRefs} logged exercise${missingRefs === 1 ? ' refers' : 's refer'} to an exercise that isn't in the backup. ${missingRefs === 1 ? 'It' : 'They'} will show as “Deleted exercise”.`);
+  if (badLinks) warnings.push(`${badLinks} workout${badLinks === 1 ? ' has' : 's have'} an unreadable link to a plan; the link${badLinks === 1 ? '' : 's'} will be removed (the workouts are kept).`);
   if (schema < 2 && src.settings?.unit === 'lb') warnings.push('This older backup stored weights in lb; they will be converted to the current format (your numbers stay the same).');
 
   // Upgrade older data (pure: returns a new object) and fill in defaults for missing optional fields.
@@ -269,6 +291,7 @@ function validateBackup(parsed) {
     workouts: data.workouts,
     templates: data.templates || [],
     active: data.active || null,
+    plans: Array.isArray(data.plans) ? data.plans : [],
     bodyweights: (data.bodyweights || []).map((w) => ({ id: String(w.id), date: w.date, kg: w.kg, ...(typeof w.note === 'string' && w.note.trim() ? { note: w.note } : {}) })),
     settings: { ...defaults.settings, ...(isObj(data.settings) ? data.settings : {}) },
     schemaVersion: SCHEMA_VERSION,
@@ -289,6 +312,7 @@ function validateBackup(parsed) {
     warnings,
     // What the backup itself contains, for restoredState() and the confirmation screen.
     weights: { count: restored.bodyweights.length, goal: !!restored.settings.weightGoal, field: Array.isArray(src.bodyweights) },
+    plans: { count: restored.plans.length, field: Array.isArray(src.plans) },
     info: {
       exportedAt: validDate(parsed.exportedAt) ? parsed.exportedAt : null,
       older: !(typeof parsed.format === 'number'),
@@ -310,12 +334,18 @@ const validWeightGoal = (g) => isObj(g) && validWeightKg(g.targetKg) && validWei
  * Pure: returns a new object and changes neither argument.
  */
 const exactWeightRestore = (result, origin) => origin?.source === 'undo' && result.weights.field;
+const exactPlanRestore = (result, origin) => origin?.source === 'undo' && !!result.plans?.field;
+/** Plans: same rule as weigh-ins. A backup with plans replaces them; one without keeps this device's plans. */
+const keepCurrentPlans = (result, origin) => !exactPlanRestore(result, origin) && !result.plans?.count;
 function restoredState(result, current, origin) {
   const next = JSON.parse(JSON.stringify(result.state));
-  if (exactWeightRestore(result, origin)) return next;
-  if (!result.weights.count) next.bodyweights = JSON.parse(JSON.stringify(Array.isArray(current.bodyweights) ? current.bodyweights : []));
-  if (!result.weights.goal && validWeightGoal(current.settings?.weightGoal)) next.settings.weightGoal = { ...current.settings.weightGoal };
-  return next;
+  if (!exactWeightRestore(result, origin)) {
+    if (!result.weights.count) next.bodyweights = JSON.parse(JSON.stringify(Array.isArray(current.bodyweights) ? current.bodyweights : []));
+    if (!result.weights.goal && validWeightGoal(current.settings?.weightGoal)) next.settings.weightGoal = { ...current.settings.weightGoal };
+  }
+  if (keepCurrentPlans(result, origin)) next.plans = JSON.parse(JSON.stringify(Array.isArray(current.plans) ? current.plans : []));
+  // Links must match the workouts and plans that are actually there now.
+  return reconcilePlans(next).state;
 }
 
 /** What happens to this device's weigh-ins and target in a restore (for messages). */
@@ -328,6 +358,11 @@ function weightRestorePlan(result, origin) {
     keep: !exact && !result.weights.count,
     keepGoal: !exact && !result.weights.goal && validWeightGoal(state.settings?.weightGoal)
   };
+}
+
+/** What happens to this device's plans in a restore (for messages). */
+function planRestorePlan(result, origin) {
+  return { here: Array.isArray(state.plans) ? state.plans.length : 0, inBackup: result.plans?.count || 0, keep: keepCurrentPlans(result, origin) };
 }
 
 /* ---------- Restore ---------- */
@@ -378,7 +413,7 @@ const countText = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** Explain what the backup contains and what will be replaced, then wait for confirmation. */
 function openRestoreConfirm(result, origin) {
-  const hasCurrent = state.workouts.length || state.templates.length || state.active || state.bodyweights?.length;
+  const hasCurrent = state.workouts.length || state.templates.length || state.active || state.bodyweights?.length || state.plans?.length;
   ui.pendingRestore = { result, origin, saveCopy: !!hasCurrent };
   renderRestoreConfirm();
 }
@@ -399,7 +434,7 @@ function renderRestoreConfirm() {
       <div class="card card-pad backup-summary">
         ${!undo ? `<div class="sub">${esc(origin.name || 'Backup file')}${info.exportedAt ? ` · exported ${fmtD(info.exportedAt)}` : info.older ? ' · older backup format' : ''}</div>` : info.exportedAt ? `<div class="sub">Saved ${fmtD(info.exportedAt)}</div>` : ''}
         <div><b>${countText(r.workouts.length, 'workout')}</b>${info.first ? ` · ${fmtD(info.first)} – ${fmtD(info.last)}` : ''}</div>
-        <div>${countText(r.templates.length, 'template')} · ${countText(r.exercises.length, 'exercise')} · ${result.weights.count ? countText(result.weights.count, 'weigh-in') : 'no weight data'}</div>
+        <div>${countText(r.templates.length, 'template')} · ${countText(r.exercises.length, 'exercise')} · ${result.weights.count ? countText(result.weights.count, 'weigh-in') : 'no weight data'}${result.plans?.count ? ` · ${countText(result.plans.count, 'plan')}` : ''}</div>
         <div>Units: ${r.settings.unit === 'lb' ? 'lb · mi' : 'kg · km'} · Rest timer ${r.settings.rest} s${r.active ? ' · includes a workout in progress' : ''}</div>
       </div>
       ${result.warnings.length ? `<div class="card card-pad backup-warnings" style="margin-top:10px">${result.warnings.map((w) => `<div>⚠️ ${esc(w)}</div>`).join('')}</div>` : ''}
@@ -411,9 +446,17 @@ function renderRestoreConfirm() {
         </div>`;
       })()}
 
+      ${(() => {
+        const pp = planRestorePlan(result, origin);
+        if (!pp.keep || !pp.here) return '';
+        return `<div class="card card-pad backup-keep" role="note" style="margin-top:10px">
+          <b>Your plans are kept.</b> This backup contains no plans, so the ${countText(pp.here, 'plan')} on this device will stay. Sessions count as done only if their workout is in the restored data.
+        </div>`;
+      })()}
+
       <div class="section-title">Your current data will be replaced</div>
       <div class="card card-pad">
-        <div>${countText(state.workouts.length, 'workout')}, ${countText(state.templates.length, 'template')}, ${countText(state.exercises.length, 'exercise')}${(() => { const wp = weightRestorePlan(result, origin); return wp.keep ? '' : `, ${countText(wp.here, 'weigh-in')}`; })()} and your settings on this device will be replaced by the ${undo ? 'saved data' : 'backup'}.</div>
+        <div>${countText(state.workouts.length, 'workout')}, ${countText(state.templates.length, 'template')}, ${countText(state.exercises.length, 'exercise')}${(() => { const wp = weightRestorePlan(result, origin); const pp = planRestorePlan(result, origin); return `${wp.keep ? '' : `, ${countText(wp.here, 'weigh-in')}`}${pp.keep || !pp.here ? '' : `, ${countText(pp.here, 'plan')}`}`; })()} and your settings on this device will be replaced by the ${undo ? 'saved data' : 'backup'}.</div>
         ${state.active ? '<div style="margin-top:6px;color:var(--danger)">Your workout in progress will be replaced too.</div>' : ''}
       </div>
       <button class="list-item switch-row" data-action="restore-toggle-copy" role="switch" aria-checked="${saveCopy}">

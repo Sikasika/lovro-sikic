@@ -45,6 +45,7 @@ function defaultState() {
     templates: [],
     active: null,
     bodyweights: [], // weigh-ins, see bodyweight.js
+    plans: [], // plans and programs, see plans.js
     settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5 },
     schemaVersion: SCHEMA_VERSION,
     cardioExercisesAdded: true
@@ -95,6 +96,7 @@ function load() {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* saved on the next change */ }
       }
       const st = { ...defaultState(), ...data, settings: { ...defaultState().settings, ...data.settings } };
+      if (!Array.isArray(st.plans)) st.plans = [];
       if (!data.cardioExercisesAdded) {
         st.cardioExercisesAdded = false;
         if (addNewDefaultExercises(st)) {
