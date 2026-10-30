@@ -46,7 +46,7 @@ function defaultState() {
     active: null,
     bodyweights: [], // weigh-ins, see bodyweight.js
     plans: [], // plans and programs, see plans.js
-    settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5 },
+    settings: { unit: 'kg', rest: 90, theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5, keepAwake: true, restSound: true },
     schemaVersion: SCHEMA_VERSION,
     cardioExercisesAdded: true
   };
@@ -266,6 +266,7 @@ function render() {
   }
   if (ui.tab === 'settings') view.innerHTML = `<button type="button" class="link back-link" data-tab="home">‹ Today</button>${renderSettings()}`;
   updateLiveBar();
+  syncWakeLock(); // never throws; keeps the screen awake only while a workout is active
 }
 
 /* The Workout tab (start screen, live workout, finishing) is in workout.js. */
@@ -1199,6 +1200,8 @@ function renderSettings() {
       </label>
     </div>
 
+    ${workoutSettingsHtml()}
+
     <div class="section-title">Exercises</div>
     <div class="card">
       <button class="list-item" data-action="manage-exercises">
@@ -1597,6 +1600,8 @@ document.addEventListener('click', (ev) => {
     case 'open-settings': ui.tab = 'settings'; closeSheet(); render(); window.scrollTo(0, 0); break;
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
     case 'theme': state.settings.theme = el.dataset.v; save(); applyTheme(); render(); break;
+    case 'toggle-keep-awake': state.settings.keepAwake = !keepAwakeOn(); wake.failedFor = null; save(); render(); break;
+    case 'toggle-rest-sound': state.settings.restSound = !restSoundOn(); save(); if (restSoundOn()) primeRestSound(); render(); break;
     case 'export': exportData(); break;
     case 'backup-snooze': snoozeBackupReminder(); break;
     case 'retry-save': retrySave(); break;

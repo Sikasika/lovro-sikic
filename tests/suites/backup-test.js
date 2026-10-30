@@ -29,7 +29,7 @@ const results = [];
 const check = (name, got, want) => { const ok = typeof want === 'function' ? want(got) : String(got) === String(want);
   results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}: got ${JSON.stringify(got).slice(0, 300)}${ok ? '' : ` want ${typeof want === 'function' ? 'predicate' : JSON.stringify(want)}`}`); };
 // Settings gain defaults for newer options (theme, plateau period) when the app loads older data.
-const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workouts, templates: s.templates, active: s.active, settings: { theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5, ...s.settings } });
+const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workouts, templates: s.templates, active: s.active, settings: { theme: 'system', plateauWeeks: 6, weightStepKg: 2.5, weightStepLb: 5, keepAwake: true, restSound: true, ...s.settings } });
 
 (async () => {
   const browser = await chromium.launch();

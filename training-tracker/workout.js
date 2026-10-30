@@ -591,7 +591,7 @@ function toggleSet(ei, si) {
   save();
   syncWorkoutStatus();
   // In a superset, rest only after the round's last exercise.
-  if (set.done) { haptic(); if (isLastInSuperset(state.active.entries, ei)) startRest(); }
+  if (set.done) { haptic(); if (isLastInSuperset(state.active.entries, ei)) { primeRestSound(); startRest(); } }
 }
 
 function addExerciseToWorkout(exerciseId) {
@@ -831,16 +831,20 @@ let restInterval = null;
 
 function startRest(seconds = state.settings.rest) {
   if (!seconds) return;
+  restSeq++;
   ui.restEnd = Date.now() + seconds * 1000;
   clearInterval(restInterval);
   restInterval = setInterval(tickRest, 250);
   tickRest();
 }
 
-function tickRest() {
+/** `manual`: the rest was shortened to zero by hand (no sound). */
+function tickRest(manual = false) {
   if (!ui.restEnd) { stopRest(); return; }
   if (ui.restEnd - Date.now() <= 0) {
+    const onTime = Date.now() - ui.restEnd < 3000; // not after the app was suspended
     stopRest();
+    if (!manual && onTime) playRestSound(restSeq);
     haptic();
     toast('Rest over. Next set! 🔔');
     return;
@@ -956,7 +960,7 @@ function handleWorkoutAction(action, el, ei, si) {
       break;
     case 'entry-link': linkWithNext(state.active.entries, ei); save(); closeSheet(); render(); break;
     case 'entry-unlink': unlinkSuperset(state.active.entries, ei); save(); closeSheet(); render(); break;
-    case 'rest-adjust': if (ui.restEnd) { ui.restEnd += +el.dataset.dir * 1000; tickRest(); } break;
+    case 'rest-adjust': if (ui.restEnd) { primeRestSound(); ui.restEnd += +el.dataset.dir * 1000; tickRest(true); } break;
     case 'rest-skip': stopRest(); break;
     case 'use-weight': {
       // Fill only empty weights of unticked working sets; never overwrite or tick anything.
@@ -1024,4 +1028,132 @@ function keepFieldVisible(el) {
   const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
   if (r.top < visibleTop + 4) window.scrollBy(0, r.top - visibleTop - 12);
   else if (r.bottom > visibleBottom - 8) window.scrollBy(0, r.bottom - visibleBottom + 16);
+}
+
+/* ---------- Screen awake and rest-timer sound ----------
+
+   Keep screen awake (Settings, default on): while a workout is active and the app is visible,
+   a screen wake lock is held (navigator.wakeLock). syncWakeLock() is called after every
+   render() (starting, finishing, discarding, restoring and erasing all re-render) and when
+   the app becomes visible again; it requests or releases the lock as needed. The browser
+   drops the lock by itself when the app is hidden (iOS also when the phone locks). A refused
+   or failed request is not retried until the app is shown again, the workout changes or the
+   setting is switched, so rendering never spams requests. Nothing here can block logging.
+
+   Rest timer sound (Settings, default on): one short beep (Web Audio) when a rest runs out on
+   its own. Audio is created and resumed only inside a tap (ticking a set, adjusting the rest),
+   as browsers require. No sound when a rest is skipped, shortened to zero by hand or replaced
+   by a new one, and none if the end was missed while the app wasn't running (more than a few
+   seconds late, e.g. after the phone was locked): the page can't make sound while suspended.
+   Each rest beeps at most once. All audio errors are ignored. */
+
+const keepAwakeOn = () => state.settings.keepAwake !== false;
+const restSoundOn = () => state.settings.restSound !== false;
+
+const wake = { sentinel: null, pending: false, status: 'idle', failedFor: null };
+const wakeLockSupported = () => typeof navigator !== 'undefined' && !!navigator.wakeLock && typeof navigator.wakeLock.request === 'function';
+const wantWakeLock = () => !!state.active && keepAwakeOn() && document.visibilityState === 'visible';
+
+function releaseWakeLock() {
+  const s = wake.sentinel;
+  wake.sentinel = null;
+  if (s) {
+    try { const p = s.release(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ }
+    wake.status = 'released';
+  }
+}
+
+async function syncWakeLock() {
+  try {
+    if (!wakeLockSupported()) { wake.status = 'unsupported'; return; }
+    if (!wantWakeLock()) { releaseWakeLock(); return; }
+    if ((wake.sentinel && !wake.sentinel.released) || wake.pending) return;
+    if (wake.failedFor === state.active.id) return; // refused: wait for a new chance (see above)
+    wake.pending = true;
+    try {
+      const s = await navigator.wakeLock.request('screen');
+      wake.sentinel = s;
+      wake.status = 'active';
+      if (s && s.addEventListener) s.addEventListener('release', () => { if (wake.sentinel === s) { wake.sentinel = null; wake.status = 'released'; } });
+      if (!wantWakeLock()) releaseWakeLock(); // the workout ended while waiting
+    } catch (e) {
+      wake.status = e && e.name === 'NotAllowedError' ? 'denied' : 'error';
+      wake.failedFor = state.active ? state.active.id : null;
+    } finally {
+      wake.pending = false;
+    }
+  } catch (e) {
+    wake.status = 'error';
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') wake.failedFor = null; // a fresh chance after coming back
+  syncWakeLock();
+});
+
+/* Rest sound */
+const restAudio = { ctx: null, primed: false, lastBeep: 0 };
+let restSeq = 0; // id of the current rest period
+
+/** Create or resume audio. Only call from a tap handler. */
+function primeRestSound() {
+  if (!restSoundOn()) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!restAudio.ctx) restAudio.ctx = new AC();
+    const ctx = restAudio.ctx;
+    if (ctx.state !== 'running' && ctx.resume) { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); }
+    if (!restAudio.primed) {
+      // A silent, very short sound inside the tap unlocks audio on iOS.
+      const g = ctx.createGain(); g.gain.value = 0; g.connect(ctx.destination);
+      const o = ctx.createOscillator(); o.connect(g); o.start(); o.stop(ctx.currentTime + 0.01);
+      restAudio.primed = true;
+    }
+  } catch (e) { /* no audio: the visual alert still shows */ }
+}
+
+/** One short, quiet beep for rest period `id` (never twice for the same rest). */
+function playRestSound(id) {
+  if (!restSoundOn() || restAudio.lastBeep === id) return;
+  restAudio.lastBeep = id;
+  try {
+    const ctx = restAudio.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    g.connect(ctx.destination);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = 880;
+    o.connect(g);
+    o.start(t);
+    o.stop(t + 0.25);
+  } catch (e) { /* ignore */ }
+}
+
+const WAKE_TEXT = {
+  unsupported: 'Not available in this browser.',
+  denied: 'The browser didn\'t allow it last time; it tries again when you come back to the app.',
+  error: 'It couldn\'t be turned on last time; it tries again when you come back to the app.'
+};
+
+function workoutSettingsHtml() {
+  const row = (action, on, title, sub) => `
+      <button type="button" class="list-item switch-row-in" data-action="${action}" role="switch" aria-checked="${on}">
+        <span class="grow">${title}<span class="sub" style="display:block">${sub}</span></span>
+        <span class="switch ${on ? 'on' : ''}" aria-hidden="true"></span>
+      </button>`;
+  const note = WAKE_TEXT[wake.status] || '';
+  return `
+    <div class="section-title">During workouts</div>
+    <div class="card">
+      ${row('toggle-keep-awake', keepAwakeOn(), 'Keep screen awake', `Stops the screen dimming while a workout is in progress.${note ? ` ${esc(note)}` : ''}`)}
+      ${row('toggle-rest-sound', restSoundOn(), 'Rest timer sound', 'A short beep when a rest ends, while the app is open.')}
+    </div>
+    <p class="tpl-hint">iPhone may still turn the screen off, or stop the app, when you switch apps, lock the phone or Low Power Mode is on; the screen stays awake again when you come back. The beep can't play while the phone is locked or the app is in the background, and it is silent when the iPhone's silent mode is on.</p>`;
 }

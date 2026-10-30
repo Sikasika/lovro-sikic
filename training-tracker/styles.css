@@ -538,6 +538,8 @@ textarea.notes {
 .backup-warnings { font-size: 14px; color: var(--muted); }
 .backup-warnings > div + div { margin-top: 6px; }
 .switch-row { background: var(--card); border-radius: var(--radius); margin-top: 12px; }
+.switch-row-in { color: var(--text); }
+.switch-row-in .switch { flex: none; }
 .switch {
   position: relative;
   flex: none;
