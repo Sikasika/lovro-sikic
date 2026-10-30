@@ -133,12 +133,16 @@ function applyTheme() {
   });
 }
 applyTheme();
+/** Write the whole state. On failure the data stays in memory and a warning stays up (backup.js). */
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
-    toast('Could not save. Storage may be full.');
+    onSaveFailed();
+    return false;
   }
+  onSaveSucceeded();
+  return true;
 }
 
 // Opens on Home; straight into the logger when a workout is in progress.
@@ -1206,7 +1210,7 @@ function renderSettings() {
     <div class="section-title">Backup</div>
     <div class="card">
       <button class="list-item" data-action="export">
-        <div class="grow"><div>Export backup</div><div class="sub">${state.lastExportAt ? `Last exported ${fmtDate(state.lastExportAt, { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Not exported from this device yet'}</div></div>
+        <div class="grow"><div>Export backup</div><div class="sub">${Number.isFinite(Date.parse(state.lastExportAt)) ? `Last successful backup ${fmtDate(state.lastExportAt, { day: 'numeric', month: 'short', year: 'numeric' })} (${daysAgoText(Math.max(0, Math.floor((Date.now() - Date.parse(state.lastExportAt)) / DAY_MS)))})` : 'No backup from this device yet'}</div></div>
         <span class="chev">›</span>
       </button>
       <button class="list-item" data-action="import">
@@ -1219,6 +1223,7 @@ function renderSettings() {
     </div>
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
     <p class="tpl-hint">A backup is one .json file with all workouts, templates, exercises, weigh-ins and settings. Save it to Files or iCloud Drive. Your data is only stored on this device.</p>
+    ${storageSettingsHtml()}
 
     <div class="section-title">Install on iPhone</div>
     <div class="card card-pad" style="font-size:15px;color:var(--muted)">
@@ -1593,6 +1598,9 @@ document.addEventListener('click', (ev) => {
     case 'unit': state.settings.unit = el.dataset.unit; save(); render(); break;
     case 'theme': state.settings.theme = el.dataset.v; save(); applyTheme(); render(); break;
     case 'export': exportData(); break;
+    case 'backup-snooze': snoozeBackupReminder(); break;
+    case 'retry-save': retrySave(); break;
+    case 'persist-ask': checkPersistentStorage(true).then((r) => toast(r === 'granted' ? 'Persistent storage is on' : r === 'unsupported' ? 'Not available in this browser' : 'The browser didn\'t allow it')); break;
     case 'restore-confirm': confirmRestore(); break;
     case 'restore-cancel': ui.pendingRestore = null; closeSheet(); toast('Restore cancelled. Nothing was changed.'); break;
     case 'restore-toggle-copy': ui.pendingRestore.saveCopy = !ui.pendingRestore.saveCopy; renderRestoreConfirm(); break;
@@ -1700,7 +1708,11 @@ if ('serviceWorker' in navigator) {
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
     }).catch(() => {});
   });
-  window.reloadForUpdate = () => { reloading = true; location.reload(); };
+  window.reloadForUpdate = () => {
+    // Unsaved changes would be lost by a reload: never do that silently.
+    if (saveFailing && !confirm('Your latest changes aren\'t saved and would be lost by reloading. Export a backup first (Cancel), or reload anyway (OK)?')) return;
+    allowUnload = true; reloading = true; location.reload();
+  };
 }
 
 function showUpdateNotice() {
@@ -1717,5 +1729,6 @@ function showUpdateNotice() {
 // First render once every script has loaded (Home uses Statistics and Insights helpers).
 document.addEventListener('DOMContentLoaded', () => {
   render();
+  checkPersistentStorage(hasDataWorthBackingUp());
   if (loadWarning) setTimeout(() => alert(loadWarning), 300);
 });

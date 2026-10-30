@@ -1242,3 +1242,33 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sport-tag.sport-swim { background: #339af0; } }
 .plan-banner.sport-swim { background: rgba(28, 126, 214, 0.12); }
 .plan-banner.sport-ride { background: rgba(43, 138, 62, 0.12); }
+
+/* ---------- Data safety (backup.js) ---------- */
+.backup-reminder { margin-top: 12px; box-shadow: inset 4px 0 0 var(--accent); }
+.br-title { font-size: 17px; font-weight: 700; }
+.br-text { margin: 4px 0 0; font-size: 15px; color: var(--muted); }
+.backup-reminder .btn-row .btn, .sw-actions .btn { width: auto; padding: 0 8px; white-space: nowrap; }
+
+.save-warning {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 6px);
+  z-index: 25; /* above the page and tab bar, below sheets */
+  max-width: 608px;
+  margin: 6px 16px 8px;
+  padding: 12px 14px;
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--radius);
+  box-shadow: inset 4px 0 0 var(--danger), 0 6px 24px rgba(0, 0, 0, 0.2);
+  font-size: 15px;
+}
+@media (min-width: 640px) { .save-warning { margin-left: auto; margin-right: auto; } }
+.save-warning b { display: block; color: var(--danger); font-size: 16px; }
+.save-warning .sw-text span { display: block; margin-top: 2px; color: var(--muted); }
+.sw-actions { display: flex; gap: 10px; margin-top: 10px; }
+.sw-actions .btn { flex: 1; }
+
+.storage-row { cursor: default; }
+.storage-status, .storage-num { flex: none; font-size: 15px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.storage-status.st-granted { color: var(--success); }
+.storage-status.st-denied, .storage-status.st-error { color: var(--danger); }

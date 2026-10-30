@@ -166,6 +166,7 @@ function renderHome(action) {
   return `
     <div class="home-date">${esc(today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}</div>
     ${state.active ? homeActiveCard() : homeTodayCard(items, today)}
+    ${homeBackupReminder()}
     ${weekStrip(items, today)}
     ${homeRecent(items, today)}
     ${homeBodyWeight()}

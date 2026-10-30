@@ -54,7 +54,7 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
 
   /* 1. Export a complete backup */
   await toSettings();
-  check('settings shows not exported yet', (await page.innerText('#view')).includes('Not exported from this device yet'), true);
+  check('settings shows not exported yet', (await page.innerText('#view')).includes('No backup from this device yet'), true);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action=export]')]);
   const exportPath = `${DIR}/exported.json`;
   await dl.saveAs(exportPath);
@@ -65,7 +65,7 @@ const pick = (s) => JSON.stringify({ exercises: s.exercises, workouts: s.workout
   check('backup holds everything (incl. new fields + workout in progress)', pick(exp.data), pick(original));
   await wait(200);
   check('success message', await lastToast(), 'Backup exported · 2 workouts');
-  check('last exported shown', (await page.innerText('#view')).includes('Last exported 28 Oct 2026'), true);
+  check('last exported shown', (await page.innerText('#view')).includes('Last successful backup 28 Oct 2026 (today)'), true);
 
   /* 2. Change data, then restore the exported file */
   page.removeAllListeners('dialog'); page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });

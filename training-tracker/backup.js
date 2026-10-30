@@ -118,8 +118,9 @@ async function exportData() {
   }
   if (result === 'cancelled') { toast('Export cancelled'); return; }
   state.lastExportAt = backup.exportedAt;
+  delete state.backupSnoozedUntil;
   save();
-  if (ui.tab === 'settings') render();
+  if (ui.tab === 'settings' || ui.tab === 'home') render();
   const c = backup.counts;
   toast(`Backup exported · ${c.workouts} workout${c.workouts === 1 ? '' : 's'}`);
 }
@@ -533,6 +534,7 @@ async function confirmRestore() {
   // 3. Replace and write. If writing fails, put the previous data back.
   const next = restoredState(pending.result, before, pending.origin);
   next.lastExportAt = before.lastExportAt;
+  if (before.backupSnoozedUntil) next.backupSnoozedUntil = before.backupSnoozedUntil;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch (e) {
@@ -543,6 +545,7 @@ async function confirmRestore() {
     return;
   }
   state = next;
+  onSaveSucceeded(); // the restored data is written in full
   applyTheme();
   ui.pendingRestore = null;
   ui.progressExercise = null;
@@ -563,4 +566,208 @@ function undoLastRestore() {
   try { result = validateBackup(JSON.parse(b.raw)); } catch (e) { result = { ok: false, errors: ['The saved copy could not be read.'] }; }
   if (!result.ok) showImportError(result.errors);
   else openRestoreConfirm(result, { source: 'undo' });
+}
+
+/* ---------- Data safety: backup reminder, persistent storage, failed saves ----------
+
+   Backup reminder (Today): shown when there is something worth backing up (a workout,
+   weigh-in, plan, template or a workout in progress) and either
+   - nothing has been exported from this device yet,
+   - the last successful export was more than BACKUP_REMINDER_DAYS days ago, or
+   - BACKUP_REMINDER_WORKOUTS or more workouts were saved after it (about a week of
+     training at four or five sessions a week; with fewer sessions the 14 days come first).
+   "Not now" hides it for BACKUP_SNOOZE_DAYS days only; a successful export resets both.
+   lastExportAt and backupSnoozedUntil live in the app state, not in backup files.
+
+   A successful export is one the share sheet completed or the download fallback started
+   (see shareFile); a cancelled or failed export changes nothing.
+
+   Persistent storage only asks the browser not to clear this site's data on its own (for
+   example when the device runs low on space). Browsers, Safari included, may say no, and it
+   never protects against deleting the app, clearing website data or losing the phone.
+
+   Failed saves: save() (app.js) keeps everything in memory and reports here. A warning stays
+   on screen until a save succeeds; every later save, or "Try Again", writes the whole current
+   state, so newer data is never replaced by older data. Reloading for an app update asks first. */
+
+const BACKUP_REMINDER_DAYS = 14;
+const BACKUP_REMINDER_WORKOUTS = 5;
+const BACKUP_SNOOZE_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function hasDataWorthBackingUp(st = state) {
+  const n = (a) => (Array.isArray(a) ? a.length : 0);
+  return n(st.workouts) + n(st.bodyweights) + n(st.plans) + n(st.templates) > 0 || !!st.active;
+}
+
+/** Workouts saved after the last successful export (all of them if there was none). */
+function workoutsSinceExport(st = state) {
+  const t = Date.parse(st.lastExportAt);
+  const list = Array.isArray(st.workouts) ? st.workouts : [];
+  if (!Number.isFinite(t)) return list.length;
+  return list.filter((w) => !(Date.parse(w.end || w.start) <= t)).length;
+}
+
+/** null, or why the Today reminder should show: { reason: 'never'|'workouts'|'days', days, since }. */
+function backupReminder(st = state, now = Date.now()) {
+  if (!hasDataWorthBackingUp(st)) return null;
+  const snooze = Date.parse(st.backupSnoozedUntil);
+  if (Number.isFinite(snooze) && now < snooze) return null;
+  const last = Date.parse(st.lastExportAt);
+  const since = workoutsSinceExport(st);
+  if (!Number.isFinite(last)) return { reason: 'never', days: null, since };
+  const days = Math.max(0, Math.floor((now - last) / DAY_MS));
+  if (since >= BACKUP_REMINDER_WORKOUTS) return { reason: 'workouts', days, since };
+  if (now - last > BACKUP_REMINDER_DAYS * DAY_MS) return { reason: 'days', days, since };
+  return null;
+}
+
+const daysAgoText = (d) => (d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`);
+
+function homeBackupReminder() {
+  const r = backupReminder();
+  if (!r) return '';
+  const text = r.reason === 'never'
+    ? 'Your training is stored only on this device and hasn\'t been backed up yet.'
+    : `Last backup ${daysAgoText(r.days)}${r.since ? ` · ${r.since} workout${r.since === 1 ? '' : 's'} since then` : ''}.`;
+  return `
+    <section class="card card-pad backup-reminder" aria-label="Backup reminder">
+      <div class="br-title">${r.reason === 'never' ? 'Back up your training' : 'Time for a backup'}</div>
+      <p class="br-text">${esc(text)} Save the file to Files or iCloud Drive.</p>
+      <div class="btn-row">
+        <button type="button" class="btn small" data-action="export">Export Backup</button>
+        <button type="button" class="btn small secondary" data-action="backup-snooze">Not Now</button>
+      </div>
+    </section>`;
+}
+
+function snoozeBackupReminder() {
+  state.backupSnoozedUntil = new Date(Date.now() + BACKUP_SNOOZE_DAYS * DAY_MS).toISOString();
+  save();
+  render();
+  toast(`Reminder hidden for ${BACKUP_SNOOZE_DAYS} days`);
+}
+
+/* Persistent storage */
+const storageSafety = { persist: 'checking', estimate: null };
+
+/**
+ * Check, and if `ask` request, persistent storage. Sets storageSafety.persist to
+ * 'granted' | 'denied' | 'not-requested' | 'unsupported' | 'error'.
+ */
+async function checkPersistentStorage(ask) {
+  const s = navigator.storage;
+  if (!s || typeof s.persist !== 'function' || typeof s.persisted !== 'function') {
+    storageSafety.persist = 'unsupported';
+  } else {
+    try {
+      let on = await s.persisted();
+      if (!on && ask) on = await s.persist();
+      storageSafety.persist = on ? 'granted' : ask ? 'denied' : 'not-requested';
+    } catch (e) {
+      storageSafety.persist = 'error';
+    }
+  }
+  try {
+    const est = s && typeof s.estimate === 'function' ? await s.estimate() : null;
+    storageSafety.estimate = est && Number.isFinite(est.usage) ? { usage: est.usage, quota: Number.isFinite(est.quota) ? est.quota : null } : null;
+  } catch (e) {
+    storageSafety.estimate = null;
+  }
+  if (ui.tab === 'settings') render();
+  return storageSafety.persist;
+}
+
+/** Characters stored by this app (its data and safety copies); about the same in bytes for this data. */
+function savedDataSize() {
+  try {
+    let main = 0, copies = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(STORAGE_KEY)) continue;
+      const n = k.length + (localStorage.getItem(k) || '').length;
+      if (k === STORAGE_KEY) main += n; else copies += n;
+    }
+    return { main, copies };
+  } catch (e) {
+    return null;
+  }
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} bytes`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024).toLocaleString()} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(Math.round((n / 1024 / 1024) * 10) / 10).toLocaleString()} MB`;
+  return `${(Math.round((n / 1024 / 1024 / 1024) * 10) / 10).toLocaleString()} GB`;
+}
+
+const PERSIST_TEXT = {
+  granted: ['On', 'The browser has agreed not to clear this app\'s data on its own.'],
+  denied: ['Not granted', 'The browser said no for now. It may clear saved data on its own, for example if the device runs low on space.'],
+  'not-requested': ['Not requested yet', 'It is requested once there is training data to protect.'],
+  unsupported: ['Not available', 'This browser can\'t be asked to keep data.'],
+  error: ['Unknown', 'The browser didn\'t answer.'],
+  checking: ['Checking…', '']
+};
+
+function storageSettingsHtml() {
+  const [label, text] = PERSIST_TEXT[storageSafety.persist] || PERSIST_TEXT.error;
+  const canAsk = ['denied', 'not-requested', 'error'].includes(storageSafety.persist);
+  const size = savedDataSize();
+  const est = storageSafety.estimate;
+  return `
+    <div class="section-title">Storage on this device</div>
+    <div class="card">
+      <div class="list-item storage-row">
+        <div class="grow"><div>Persistent storage</div><div class="sub">${esc(text)}</div></div>
+        <span class="storage-status st-${esc(storageSafety.persist)}">${esc(label)}</span>
+      </div>
+      ${canAsk ? '<button type="button" class="list-item" data-action="persist-ask"><span class="grow">Ask the browser again</span><span class="chev">›</span></button>' : ''}
+      <div class="list-item storage-row">
+        <div class="grow"><div>Saved training data</div><div class="sub">${size ? `Measured on this device${size.copies ? ` · plus ${fmtBytes(size.copies)} of safety copies (pre-update / before-restore)` : ''}` : 'Couldn\'t be measured'}</div></div>
+        <span class="storage-num">${size ? esc(fmtBytes(size.main)) : '–'}</span>
+      </div>
+      ${est ? `<div class="list-item storage-row">
+        <div class="grow"><div>Browser estimate</div><div class="sub">${esc(fmtBytes(est.usage))} used, as counted by the browser (it decides what to include, so this may leave out the saved data above)${est.quota ? `. Quota ${esc(fmtBytes(est.quota))}: the browser's upper limit, not space reserved for you. Saved data has its own, smaller limit (usually about 5 MB).` : '.'}</div></div>
+      </div>` : ''}
+    </div>
+    <p class="tpl-hint">Persistent storage only asks the browser not to clear your data on its own. It doesn't protect against deleting the app from the Home Screen, clearing website data, or losing the phone, and on iPhone it isn't guaranteed. Only a backup file protects against that.</p>`;
+}
+
+/* Failed saves */
+let saveFailing = false;
+
+function onSaveFailed() {
+  saveFailing = true;
+  if ($('#save-warning')) return;
+  const el = document.createElement('div');
+  el.id = 'save-warning';
+  el.className = 'save-warning';
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `
+    <div class="sw-text"><b>Your latest changes aren't saved</b>
+      <span>They're kept only while the app stays open. Export a backup now, then free up space and tap Try Again.</span></div>
+    <div class="sw-actions">
+      <button type="button" class="btn small" data-action="export">Export Backup</button>
+      <button type="button" class="btn small secondary" data-action="retry-save">Try Again</button>
+    </div>`;
+  document.body.insertBefore(el, $('#view'));
+}
+
+function onSaveSucceeded() {
+  if (storageSafety.persist === 'not-requested' && hasDataWorthBackingUp()) checkPersistentStorage(true);
+  if (!saveFailing) return;
+  saveFailing = false;
+  $('#save-warning')?.remove();
+  toast('Saved · your changes are stored again');
+}
+
+// Closing or reloading the page while changes aren't saved: ask first, where the browser allows it.
+let allowUnload = false;
+window.addEventListener('beforeunload', (e) => {
+  if (saveFailing && !allowUnload) { e.preventDefault(); e.returnValue = ''; }
+});
+
+function retrySave() {
+  if (!save()) toast('Still can\'t save. Export a backup to keep your changes.');
 }
