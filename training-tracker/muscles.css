@@ -1,0 +1,51 @@
+/* Muscle figure (muscles.js). Not loaded by the app yet. */
+:root {
+  --mf-body: #d5dce7;
+  --mf-none: #edf1f6;
+  --mf-partial: #8fb2ff;
+  --mf-partial-stripe: #0b5cff;
+  --mf-trained: #0b5cff;
+  --mf-edge: #ffffff;
+  --mf-select: #0b1530;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mf-body: #1c2538;
+    --mf-none: #2c3850;
+    --mf-partial: #55661f;
+    --mf-partial-stripe: #c8ff2e;
+    --mf-trained: #c8ff2e;
+    --mf-edge: #121a2b;
+    --mf-select: #f2f6fc;
+  }
+}
+:root[data-theme="dark"] {
+  --mf-body: #1c2538;
+  --mf-none: #2c3850;
+  --mf-partial: #55661f;
+  --mf-partial-stripe: #c8ff2e;
+  --mf-trained: #c8ff2e;
+  --mf-edge: #121a2b;
+  --mf-select: #f2f6fc;
+}
+
+.muscle-figure { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mf-view { margin: 0; min-width: 0; text-align: center; position: relative; }
+.mf-svg { display: block; width: 100%; height: auto; max-height: 420px; }
+.mf-view figcaption { font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.mf-body { fill: var(--mf-body); }
+.m-region { stroke: var(--mf-edge); stroke-width: 1.4; stroke-linejoin: round; cursor: pointer; transition: fill 0.15s; }
+.m-none { fill: var(--mf-none); }
+.m-partial { fill: var(--hatch, var(--mf-partial)); }
+.m-trained { fill: var(--mf-trained); }
+.mf-hatch-bg { fill: var(--mf-partial); }
+.mf-hatch-fg { fill: var(--mf-partial-stripe); }
+.m-selected { stroke: var(--mf-select); stroke-width: 2.6; }
+.mf-hidden-buttons { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.mf-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; margin-top: 10px; font-size: 14px; color: var(--muted); }
+.mf-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.mf-legend i { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--separator); display: inline-block; }
+.mf-legend .lg-none { background: var(--mf-none); }
+.mf-legend .lg-partial { background: repeating-linear-gradient(45deg, var(--mf-partial-stripe) 0 2px, var(--mf-partial) 2px 5px); }
+.mf-legend .lg-trained { background: var(--mf-trained); }
