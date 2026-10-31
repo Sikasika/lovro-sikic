@@ -111,9 +111,26 @@ const GROUPS = ['chest', 'front-delts', 'side-delts', 'rear-delts', 'biceps', 't
 
   /* F. Cardio; G. workout in progress */
   await reset();
-  await ev(() => { state.exercises.push({ id: 'pad', name: 'Padel', category: 'Sports' }); T.w(24, [['Running', [{ distance: 5000, duration: 1800, done: true }]], ['Rowing', [{ distance: 2000, duration: 480, done: true }]], ['pad', 3]]); });
+  await ev(() => T.w(24, ['Running', 'Walking', 'Cycling', 'Swimming', 'Rowing'].map((n) => [n, [{ distance: 2000, duration: 600, done: true }]])));
   r = await ev(() => { const a = T.act(7); return `${Object.values(a.muscles).every((x) => x.weighted === 0)}|${a.unmapped.length}`; });
-  check('F cardio (and sports) count for no muscle and are not listed as unmapped', r, 'true|0');
+  check('F all five cardio exercises count for no muscle and are not listed as unmapped', r, 'true|0');
+  // The same names in another category, and a cardio-category exercise with a muscle setting, stay excluded
+  await reset();
+  await ev(() => { state.exercises.push({ id: 'srow', name: 'Rowing', category: 'Sports' }, { id: 'sswim', name: ' swimming ', category: 'Other' }, { id: 'cm', name: 'Stair Climber', category: 'Cardio', muscles: { primary: ['quads'] } });
+    T.w(24, [['srow', 3], ['sswim', 2], ['cm', 4]]); });
+  r = await ev(() => { const a = T.act(7); return `${Object.values(a.muscles).every((x) => x.weighted === 0)}|${a.unmapped.length}`; });
+  check('F cardio names in any category, and anything in the Cardio category, stay excluded', r, 'true|0');
+  // Sports exercises: listed as not mapped, or counted when they have their own valid setting
+  await reset();
+  await ev(() => { state.exercises.push({ id: 'pad', name: 'Padel', category: 'Sports' }, { id: 'clb', name: 'Climbing', category: 'Sports', muscles: { primary: ['lats', 'forearms'], secondary: ['biceps'] } }, { id: 'bad', name: 'Football', category: 'Sports', muscles: { primary: ['legs'] } });
+    T.w(24, [['pad', 3], ['clb', 4], ['bad', 2], ['Bench Press', 2]]); });
+  r = await ev(() => { const a = T.act(7); return { un: a.unmapped.map((x) => `${x.name}:${x.sets}`).join(','), lats: a.muscles.lats.weighted, fore: a.muscles.forearms.weighted, bi: a.muscles.biceps.weighted, chest: a.muscles.chest.weighted, tri: a.muscles.triceps.weighted, quads: a.muscles.quads.weighted, clbRole: a.muscles.biceps.exercises.map((x) => `${x.name}:${x.primarySets}/${x.secondarySets}`).join(',') }; });
+  check('F Sports exercise without a mapping ("Padel") is listed as not mapped; one with an invalid setting too', r.un, 'Padel:3,Football:2');
+  check('F Sports exercise with its own valid setting ("Climbing") counts: lats 4, forearms 4, biceps 2 (secondary)', `${r.lats}|${r.fore}|${r.bi}|${r.clbRole}`, '4|4|2|Climbing:0/4');
+  check('F nothing guessed for Sports exercises; resistance exercises unchanged (Bench Press 2 → chest 2, triceps 1)', `${r.quads}|${r.chest}|${r.tri}`, '0|2|1');
+  await ev(() => { ui.tab = 'muscles'; ui.mus = { days: 7, selected: null }; render(); }); await wait();
+  check('F the Not mapped list on screen shows the Sports exercises', await ev(() => [...document.querySelectorAll('.mus-unmapped .grow')].map((x) => x.textContent).join(',')), 'Padel,Football');
+  await ev(() => { ui.tab = 'home'; render(); });
   await ev(() => { state.active = { id: 'act', name: 'Now', notes: '', start: new Date().toISOString(), entries: [{ exerciseId: T.id('Squat'), sets: [{ weight: 100, reps: 5, done: true }] }] }; save(); });
   check('G a workout in progress is not counted', (await ev(() => T.m(7))).quads, 0);
   await ev(() => { state.active = null; save(); });

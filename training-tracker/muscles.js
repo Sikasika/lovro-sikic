@@ -143,7 +143,9 @@ function muscleLegendHtml() {
       (only known group ids, at least one primary); never written by the app;
    2. the built-in table below, by exact name (case and surrounding spaces ignored);
    3. otherwise not mapped. Nothing is guessed from categories or similar names.
-   Cardio (and Sports) exercises never count. */
+   Cardio never counts: the Cardio category, and the five cardio exercises (Running, Walking,
+   Cycling, Swimming, Rowing) by exact name in any category. Sports exercises follow the rules
+   above like any other: their own setting, the built-in table, or "Not mapped". */
 
 const MUSCLE_WEIGHT = { primary: 1, secondary: 0.5 };
 
@@ -193,7 +195,8 @@ function exerciseMuscles(ex) {
 }
 
 /** Exercises that never count towards muscles (by category). */
-const muscleExcluded = (ex) => ['cardio', 'sports', 'sport'].includes(String(ex?.category || '').trim().toLowerCase());
+const MUSCLE_CARDIO_NAMES = new Set(['running', 'walking', 'cycling', 'swimming', 'rowing']);
+const muscleExcluded = (ex) => String(ex?.category || '').trim().toLowerCase() === 'cardio' || MUSCLE_CARDIO_NAMES.has(muscleNameKey(ex?.name));
 
 /** Sets of one logged entry that count: completed, not warm-ups (drop sets count as 1). */
 const muscleSets = (entry) => completedSets(entry).filter((s) => setType(s) !== 'warmup').length;
