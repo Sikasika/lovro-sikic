@@ -1274,3 +1274,14 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .storage-status, .storage-num { flex: none; font-size: 15px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .storage-status.st-granted { color: var(--success); }
 .storage-status.st-denied, .storage-status.st-error { color: var(--danger); }
+
+/* ---------- Back from a break (plans-ui.js) ---------- */
+.break-link { display: block; margin-top: 8px; text-align: left; }
+.break-note { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.break-note .link.small { padding: 0; font-size: 14px; }
+.brk-preview { margin-top: 12px; }
+.brk-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 15px; }
+.brk-row span { color: var(--muted); flex: none; max-width: 45%; }
+.brk-row b { text-align: right; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.brk-check { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 700; color: transparent; border: 2px solid var(--check-line); }
+.brk-check.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

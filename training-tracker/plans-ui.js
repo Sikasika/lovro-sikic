@@ -120,6 +120,7 @@ function planCard(plan, today) {
       <div class="plan-counts">
         <span><b>${pr.completed}</b> done</span><span><b>${pr.missed}</b> missed</span><span><b>${pr.skipped}</b> skipped</span><span><b>${pr.total - pr.due}</b> to go</span>
       </div>
+      ${breakLinksHtml(plan, today)}
       ${planUpdateAvailable(plan) ? '<div class="sub" style="margin-top:6px">A newer version of this program exists. Your schedule stays as it was when you started.</div>' : ''}
       <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}${plan.kind !== 'strength' ? ` · ${esc(week.label || '')} · ${esc(weekDoneText(plan, week, thisWeek))}` : ''}</div>
       <div class="plan-sessions">${thisWeek.map((s) => sessionRow(plan, s)).join('')}</div>
@@ -144,6 +145,7 @@ function openPlanSchedule(planId) {
   const pr = planProgress(plan, state, today);
   const phase = planPhase(plan, today);
   const byKey = new Map(list.map((s) => [s.key, s]));
+  ui.planScheduleId = planId;
   openSheet(`
     <div class="sheet-head">
       <button type="button" class="link" data-action="close-sheet">Done</button>
@@ -152,6 +154,7 @@ function openPlanSchedule(planId) {
     </div>
     <div class="sheet-body">
       <div class="sub" style="margin:4px 0 10px">${esc(planDatesText(plan.startDate, plan.endDate))} · ${esc(planStatusText(plan, pr, today))} · ${pr.completed} of ${plural(pr.total, 'session')} done</div>
+      ${breakLinksHtml(plan, today)}
       ${plan.kind === 'run' && plan.summary ? runAssessmentHtml(plan.summary, plan.summary.goal) : ''}
       ${(plan.kind === 'swim' || plan.kind === 'bike') && plan.summary ? sportAssessmentHtml(plan.summary) : ''}
       ${plan.weeks.map((w) => `
@@ -305,7 +308,7 @@ function planResult(r, okText) {
 
 /** Plans actions. Returns true if handled. */
 function handlePlanAction(action, el) {
-  if (handleRunSetupAction(action, el) || handleSportSetupAction(action, el)) return true;
+  if (handleRunSetupAction(action, el) || handleSportSetupAction(action, el) || handleBreakAction(action, el)) return true;
   const id = el.dataset.id;
   switch (action) {
     case 'plan-setup': openProgramSetup(id); break;
@@ -858,3 +861,158 @@ function handleSportSetupAction(action, el) {
 
 document.addEventListener('input', (ev) => { const t = ev.target; if (ui.sportSetup && t.dataset?.ss) ui.sportSetup[t.dataset.ss] = t.value; });
 document.addEventListener('change', (ev) => { const t = ev.target; if (ui.sportSetup && t.dataset?.ss) ui.sportSetup[t.dataset.ss] = t.value; });
+
+/* ---------- Back from a break (sheet; rules in plans.js) ---------- */
+
+const weeksText = (n) => `${n} week${n === 1 ? '' : 's'}`;
+const sessionsDaysText = (list, max = 4) => `${list.slice(0, max).map((s) => sessionDayText(s.date)).join(', ')}${list.length > max ? ` and ${list.length - max} more` : ''}`;
+
+/** Link on the plan card and schedule: the break prompt, and the last move with Undo. */
+function breakLinksHtml(plan, today) {
+  const out = [];
+  const last = Array.isArray(plan.shifts) && plan.shifts.length ? plan.shifts[plan.shifts.length - 1] : null;
+  if (last && isPlainObject(last) && Number.isInteger(last.weeks)) {
+    out.push(`<div class="break-note">Moved ${weeksText(last.weeks)} later${validDate(last.at) ? ` on ${esc(sessionDayText(sKey(new Date(last.at))))}` : ''} · <button type="button" class="link small" data-action="break-undo" data-id="${esc(plan.id)}">Undo</button></div>`);
+  }
+  const opt = breakOptions(state, plan.id, today);
+  if (opt && !(ui.breakDismissed || {})[plan.id]) {
+    out.push(`<button type="button" class="link small break-link" data-action="break-open" data-id="${esc(plan.id)}">Missed a few sessions? ${opt.event ? 'What to do now' : 'Pick up where you left off'} ›</button>`);
+  }
+  return out.join('');
+}
+
+function openBreakSheet(planId) {
+  const today = todayKey();
+  const opt = breakOptions(state, planId, today);
+  if (!opt) { closeSheet(); render(); return; }
+  if (!ui.brk || ui.brk.planId !== planId) ui.brk = { planId, pickupKey: null, weeks: null, also: false, skip: null };
+  const b = ui.brk;
+  const head = `
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Cancel</button>
+      <h2 class="truncate" style="max-width:60%">Back from a break</h2>
+      <span style="width:52px"></span>
+    </div>`;
+  if (opt.event) { openSheet(head + eventBreakHtml(opt, today)); return; }
+  const pv = previewShift(state, planId, { pickupKey: b.pickupKey, weeks: b.weeks, also: b.also, alsoOther: b.also }, today);
+  if (!pv.pickup) { openSheet(`${head}<div class="sheet-body"><div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(pv.error)}</div></div></div>`); return; }
+  b.pickupKey = pv.pickup.key;
+  const weeks = pv.weeks || pv.needed;
+  const main = pv.items[0];
+  const pair = pv.items[1];
+  const itemHtml = (it, first) => `
+      <div class="brk-row"><span>${first ? 'Moving' : `Also moving “${esc(it.plan.name)}”`}</span><b>${plural(it.moving.length, 'session')}, ${weeksText(weeks)} later</b></div>
+      <div class="brk-row"><span>Plan now ends</span><b>${esc(sessionDayText(it.after))}${it.after !== it.before ? ` (was ${esc(sessionDayText(it.before))})` : ''}</b></div>
+      <div class="brk-row"><span>Stay as missed</span><b>${it.leftMissed.length ? `${plural(it.leftMissed.length, 'session')} (${esc(sessionsDaysText(it.leftMissed))})` : 'none'}</b></div>
+      ${it.keptDone.length ? `<div class="brk-row"><span>Stay on their days</span><b>${plural(it.keptDone.length, 'completed session')}</b></div>` : ''}`;
+  const conflictDays = [...new Set(pv.conflicts.map((c) => c.date))];
+  const gapDays = sDaysBetween(sFromKey(pv.pickup.date), sFromKey(today));
+  openSheet(`${head}
+    <div class="sheet-body brk">
+      <p class="plan-objective">The session you pick up from and every session after it that isn't done move later by whole weeks, so they keep their weekdays and spacing. Nothing changes until you tap Move Sessions.</p>
+      <label class="ps-field"><span class="ps-label">Pick up from</span>
+        <select id="brk-pickup" data-brk="pickup">${pv.candidates.map((s) => `<option value="${esc(s.key)}"${s.key === pv.pickup.key ? ' selected' : ''}>${esc(sessionDayText(s.date))} · ${esc(s.title)} (week ${esc(s.week)})</option>`).join('')}</select></label>
+      <label class="ps-field"><span class="ps-label">Move it and everything after it</span>
+        <select id="brk-weeks" data-brk="weeks"${pv.needed > BREAK_MAX_WEEKS ? ' disabled' : ''}>${Array.from({ length: Math.max(0, BREAK_MAX_WEEKS - pv.needed + 1) }, (_, i) => pv.needed + i).map((n) => `<option value="${n}"${n === weeks ? ' selected' : ''}>${weeksText(n)} later</option>`).join('')}</select></label>
+      ${pv.ok ? `
+      <div class="card card-pad brk-preview">
+        <div class="brk-row"><span>Picking up from</span><b>${esc(sessionDayText(pv.pickup.date))} · ${esc(pv.pickup.title)} → ${esc(sessionDayText(addWeeks(pv.pickup.date, weeks)))}</b></div>
+        ${itemHtml(main, true)}
+        ${pair ? itemHtml(pair, false) : ''}
+      </div>
+      ${conflictDays.length ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>Same day as your other plan:</b> ${esc(conflictDays.map((d) => sessionDayText(d)).join(', '))}.</div></div>` : ''}
+      ${pv.other && (conflictDays.length || b.also) ? (pv.otherMovable ? `
+      <button type="button" class="list-item switch-row" data-action="break-also" role="switch" aria-checked="${b.also}">
+        <span class="grow">Also move “${esc(pv.other.name)}” by the same ${weeksText(weeks)}<span class="sub" style="display:block">Its sessions from ${esc(sessionDayText(pv.pickup.date))} on that aren't done</span></span>
+        <span class="switch ${b.also ? 'on' : ''}" aria-hidden="true"></span>
+      </button>` : `<p class="tpl-hint">${esc(pv.otherReason)}</p>`) : ''}
+      ${gapDays > 14 ? '<div class="finish-note"><span aria-hidden="true">i</span><div>After more than two weeks off, take the first week back easier than planned, and stop if anything hurts.</div></div>' : ''}
+      <div class="btn-col"><button type="button" class="btn" data-action="break-apply">Move Sessions</button>
+        <button type="button" class="btn secondary" data-action="close-sheet">Cancel</button></div>`
+    : `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(pv.error)}</div></div>`}
+    </div>`);
+}
+
+function eventBreakHtml(opt, today) {
+  const b = ui.brk;
+  if (!b.skip) b.skip = opt.missed.map((s) => s.key);
+  const ev = opt.eventDate;
+  const daysLeft = ev ? sDaysBetween(sFromKey(today), sFromKey(ev)) : null;
+  const next = sessionStatuses(opt.plan, state, today).filter((s) => s.date >= today).sort((a, c) => (a.date < c.date ? -1 : 1))[0];
+  const inTaper = !!next && opt.plan.weeks.some((w) => w.taper && w.sessions.some((s) => s.key === next.key));
+  const notes = [];
+  if (ev && daysLeft < 0) notes.push('Your event date has passed.');
+  else {
+    if (inTaper) notes.push('You\'re in the taper. Missed training can\'t be made up now; keep the remaining sessions easy.');
+    if (daysLeft != null && daysLeft < 14) notes.push(`Your event is ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}. Consider a shorter event or a later date if the missed time was long.`);
+  }
+  return `
+    <div class="sheet-body brk">
+      <div class="finish-note warn"><span aria-hidden="true">!</span><div><b>Your event date can't move${ev ? ` (${esc(sessionDayText(ev))})` : ''}.</b> Moving sessions later would cut into your taper. Don't try to make up missed sessions: continue from this week, and take the first sessions easier.</div></div>
+      ${notes.map((n) => `<div class="finish-note"><span aria-hidden="true">i</span><div>${esc(n)}</div></div>`).join('')}
+      <div class="section-title">Missed sessions</div>
+      <div class="card">${opt.missed.map((s) => `
+        <button type="button" class="list-item switch-row-in" data-action="break-skip-pick" data-id="${esc(s.key)}" role="checkbox" aria-checked="${b.skip.includes(s.key)}">
+          <span class="grow">${esc(s.title)}<span class="sub" style="display:block">${esc(sessionDayText(s.date))} · week ${esc(s.week)}</span></span>
+          <span class="brk-check ${b.skip.includes(s.key) ? 'on' : ''}" aria-hidden="true">✓</span>
+        </button>`).join('')}</div>
+      <div class="btn-col">
+        <button type="button" class="btn" data-action="break-continue">Continue from This Week</button>
+        <button type="button" class="btn secondary" data-action="break-skip"${b.skip.length ? '' : ' disabled'}>Skip the Missed Sessions${b.skip.length ? ` (${b.skip.length})` : ''}</button>
+      </div>
+      <p class="tpl-hint">Continuing changes nothing in your schedule. Skipped sessions stay on their days; you can undo a skip from the session.</p>
+    </div>`;
+}
+
+function handleBreakAction(action, el) {
+  const b = ui.brk;
+  switch (action) {
+    case 'break-open': ui.brk = null; openBreakSheet(el.dataset.id); return true;
+    case 'break-also': if (b) { b.also = !b.also; openBreakSheet(b.planId); } return true;
+    case 'break-apply': {
+      if (!b) return true;
+      const pv = previewShift(state, b.planId, { pickupKey: b.pickupKey, weeks: b.weeks, alsoOther: b.also });
+      const r = applyShift(state, pv);
+      if (!r.ok) { alert(r.error); return true; }
+      save();
+      ui.brk = null;
+      closeSheet(); render();
+      toast(`Moved ${plural(r.moved, 'session')} ${weeksText(pv.weeks)} later`);
+      return true;
+    }
+    case 'break-undo': {
+      const id = el.dataset.id;
+      const last = lastShift(state, id);
+      if (last.error) { alert(last.error); return true; }
+      const names = last.entries.map((x) => `“${x.plan.name}”`).join(' and ');
+      const msg = `Undo the last move of ${names}? The sessions go back to their earlier days.${last.changed ? ` ${plural(last.changed, 'moved session')} changed since (moved, skipped or done); ${last.changed === 1 ? 'it goes back as it was' : 'they go back as they were'} before the move. Your workouts stay as they are.` : ''}`;
+      if (!confirm(msg)) return true;
+      const r = undoShift(state, id);
+      if (!r.ok) { alert(r.error); return true; }
+      save(); render();
+      if ($('#sheet') && !$('#sheet').classList.contains('hidden') && ui.planScheduleId === id) openPlanSchedule(id);
+      toast('Move undone');
+      return true;
+    }
+    case 'break-continue': if (b) { ui.breakDismissed = { ...(ui.breakDismissed || {}), [b.planId]: true }; ui.brk = null; } closeSheet(); render(); return true;
+    case 'break-skip-pick': if (b && b.skip) { const k = el.dataset.id; b.skip = b.skip.includes(k) ? b.skip.filter((x) => x !== k) : [...b.skip, k]; openBreakSheet(b.planId); } return true;
+    case 'break-skip': {
+      if (!b || !b.skip?.length) return true;
+      if (!confirm(`Mark ${plural(b.skip.length, 'missed session')} as skipped? They stay on their days, and you can undo a skip from each session.`)) return true;
+      const r = skipMissed(state, b.planId, b.skip);
+      if (!r.ok) { alert(r.error); return true; }
+      save(); ui.brk = null; closeSheet(); render();
+      toast(`${plural(r.skipped, 'session')} skipped`);
+      return true;
+    }
+    default: return false;
+  }
+}
+
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (!ui.brk || !t.dataset?.brk) return;
+  if (t.dataset.brk === 'pickup') { ui.brk.pickupKey = t.value; ui.brk.weeks = null; }
+  if (t.dataset.brk === 'weeks') ui.brk.weeks = +t.value;
+  openBreakSheet(ui.brk.planId);
+});

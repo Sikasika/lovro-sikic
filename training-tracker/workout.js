@@ -885,9 +885,9 @@ function updateLiveBar() {
   $('#lb-time').textContent = fmtDuration(Date.now() - new Date(state.active.start)) + (ui.restEnd ? ` · Rest ${restLeftText()}` : '');
 }
 
-// Keep the workout clock ticking.
+// Keep the workout clock ticking (from when app.js has loaded the data).
 setInterval(() => {
-  if (!state.active) return;
+  if (typeof state === 'undefined' || !state.active) return;
   const el = $('#elapsed') || $('#home-elapsed');
   if (el) el.textContent = fmtDuration(Date.now() - new Date(state.active.start));
   updateLiveBar();

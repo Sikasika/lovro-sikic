@@ -458,3 +458,236 @@ function reconcilePlans(input) {
   }
   return { state: st, report };
 }
+
+/* ---------- Back from a break ----------
+
+   Offered for an active plan when at least BREAK_MIN_MISSED sessions in a row were missed
+   after the latest done, in-progress or (past) skipped session.
+
+   Plans without an event: "pick up where you left off". The pick-up session (default: the
+   first missed one of that run; any later missed one can be chosen) and every session after
+   it that isn't done, in progress or linked to a workout move the same whole number of weeks
+   later (1–BREAK_MAX_WEEKS), so weekdays and spacing stay as they were. Earlier missed
+   sessions stay missed; skipped ones keep their skip; a manually moved session moves by the
+   same amount (its "moved from" day moves too). The saved dates are rewritten and the end
+   date extended, so week numbers, totals and Today follow without other changes. The other
+   running plan (strength vs sport) moves only when asked, by the same weeks, from the same day.
+
+   Each shift records, per plan, everything needed to undo it exactly (plan.shifts, last one
+   first): the previous end date and each moved session's previous date and override (with its
+   status), plus the same values after the shift to tell whether anything changed since.
+   Workouts and their links are never touched. Older app versions ignore plan.shifts; the dates
+   and end date they read are ordinary plan data.
+
+   Plans with an event (a race/event session or an event date in the setup answers) are never
+   rescheduled; their missed sessions can be marked skipped. */
+
+const BREAK_MIN_MISSED = 2;
+const BREAK_MAX_WEEKS = 8;
+const BREAK_DONE = ['completed', 'in-progress'];
+
+const isEventSession = (s) => s.type === 'race' || s.type === 'event';
+function isEventPlan(plan) {
+  return !!plan && (isDateKey(plan.answers?.eventDate) || planSessions(plan).some(isEventSession));
+}
+function planEventDate(plan) {
+  if (isDateKey(plan?.answers?.eventDate)) return plan.answers.eventDate;
+  const s = plan ? planSessions(plan).find(isEventSession) : null;
+  return s ? s.date : null;
+}
+
+/** Sessions with statuses in day order (ties: plan order). */
+function orderedStatuses(plan, st, today) {
+  return sessionStatuses(plan, st, today).map((s, i) => ({ s, i }))
+    .sort((a, b) => (a.s.date < b.s.date ? -1 : a.s.date > b.s.date ? 1 : a.i - b.i)).map((x) => x.s);
+}
+
+/** The run of missed sessions after the latest done / in-progress / past skipped one, or null. */
+function missedRun(plan, st = state, today = todayKey()) {
+  if (!plan || plan.status !== 'active') return null;
+  const list = orderedStatuses(plan, st, today);
+  let anchor = -1;
+  list.forEach((s, i) => { if (BREAK_DONE.includes(s.status) || (s.status === 'skipped' && s.date <= today)) anchor = i; });
+  const missed = list.slice(anchor + 1).filter((s) => s.status === 'missed');
+  return missed.length >= BREAK_MIN_MISSED ? { missed, list } : null;
+}
+
+/** What "Back from a break" offers for a plan, or null when it doesn't apply. */
+function breakOptions(st, planId, today = todayKey()) {
+  const plan = findPlan(st, planId);
+  const run = missedRun(plan, st, today);
+  if (!run) return null;
+  const event = isEventPlan(plan);
+  return { plan, event, missed: run.missed, eventDate: event ? planEventDate(plan) : null };
+}
+
+/** Fewest whole weeks that put `date` on today or later. */
+const breakWeeksNeeded = (date, today) => Math.max(1, Math.ceil(sDaysBetween(sFromKey(date), sFromKey(today)) / 7));
+const addWeeks = (key, w) => sKey(sAddDays(sFromKey(key), 7 * w));
+const groupWord = (kind) => (planGroup(kind) === 'strength' ? 'strength program' : 'sport plan');
+
+/** The other running plan (strength ↔ sport), or null. */
+function pairedPlan(st, plan, today = todayKey()) {
+  return runningPlans(st, today).find((p) => p.id !== plan.id && planGroup(p.kind) !== planGroup(plan.kind)) || null;
+}
+
+/** Sessions of `plan` that a shift starting at `from` (a session, or a day for the other plan) moves. */
+function sessionsToShift(list, from) {
+  const start = typeof from === 'string' ? list.findIndex((s) => s.date >= from) : list.indexOf(from);
+  if (start < 0) return [];
+  return list.slice(start).filter((s) => !BREAK_DONE.includes(s.status) && !s.workoutId);
+}
+
+/** Copy of a plan with these sessions moved `weeks` later and the shift recorded. */
+function shiftedPlan(plan, keys, weeks, meta) {
+  const p = JSON.parse(JSON.stringify(plan));
+  if (!isPlainObject(p.overrides)) p.overrides = {};
+  const prev = { endDate: p.endDate, sessions: {} }, after = { sessions: {} };
+  for (const wk of p.weeks) for (const s of wk.sessions) {
+    if (!keys.has(s.key)) continue;
+    const o = isPlainObject(p.overrides[s.key]) ? p.overrides[s.key] : null;
+    prev.sessions[s.key] = { date: s.date, override: o ? JSON.parse(JSON.stringify(o)) : null };
+    s.date = addWeeks(s.date, weeks);
+    if (o && isDateKey(o.date)) o.date = addWeeks(o.date, weeks);
+    after.sessions[s.key] = { date: s.date, override: o ? JSON.parse(JSON.stringify(o)) : null };
+  }
+  const dates = planSessions(p).flatMap((s) => [s.date, p.overrides[s.key]?.date]).filter(isDateKey).sort();
+  p.endDate = dates[dates.length - 1] > p.endDate ? dates[dates.length - 1] : p.endDate;
+  // A plan that hasn't started yet and moves as a whole starts later too.
+  if (meta.today && p.startDate > meta.today && planSessions(plan).every((s) => keys.has(s.key))) {
+    prev.startDate = p.startDate;
+    p.startDate = addWeeks(p.startDate, weeks);
+  }
+  after.endDate = p.endDate;
+  p.shifts = [...(Array.isArray(p.shifts) ? p.shifts : []), { id: meta.id, at: meta.at, weeks, pickupKey: meta.pickupKey, ...(meta.pair ? { pair: meta.pair } : {}), prev, after }];
+  return p;
+}
+
+/**
+ * Preview a shift (nothing is changed). opts: { pickupKey?, weeks?, alsoOther? }.
+ * Returns { ok, error?, plan, pickup, candidates, needed, weeks, items: [{ plan, before, after, moving, leftMissed, keptDone }],
+ *           other, otherMovable, otherReason, conflicts, plans (the changed plan copies) }.
+ */
+function previewShift(st, planId, opts = {}, today = todayKey()) {
+  const opt = breakOptions(st, planId, today);
+  if (!opt) return { ok: false, error: 'There is no run of missed sessions to pick up from.' };
+  const plan = opt.plan;
+  if (opt.event) return { ok: false, error: 'Plans with an event date are not moved: the event can\'t move.' };
+  const candidates = opt.missed;
+  const pickup = candidates.find((s) => s.key === opts.pickupKey) || candidates[0];
+  const needed = breakWeeksNeeded(pickup.date, today);
+  const res = { ok: true, plan, pickup, candidates, needed, items: [], conflicts: [], plans: [] };
+  if (needed > BREAK_MAX_WEEKS) return { ...res, ok: false, error: `This break is longer than ${BREAK_MAX_WEEKS} weeks. Consider starting the plan again instead.` };
+  const weeks = Number.isInteger(opts.weeks) ? opts.weeks : needed;
+  res.weeks = weeks;
+  if (weeks < needed || weeks > BREAK_MAX_WEEKS) return { ...res, ok: false, error: `Choose ${needed === BREAK_MAX_WEEKS ? BREAK_MAX_WEEKS : `${needed} to ${BREAK_MAX_WEEKS}`} weeks.` };
+
+  const other = pairedPlan(st, plan, today);
+  res.other = other;
+  res.otherMovable = !!other && other.status === 'active' && !isEventPlan(other);
+  res.otherReason = !other ? '' : isEventPlan(other) ? `“${other.name}” has an event date, so it can't be moved.` : '';
+  const meta = { id: uid(), at: new Date().toISOString(), pickupKey: pickup.key, pair: opts.alsoOther && res.otherMovable ? uid() : null, today };
+
+  const list = orderedStatuses(plan, st, today);
+  const jobs = [{ plan, list, moving: sessionsToShift(list, list.find((s) => s.key === pickup.key)) }];
+  if (meta.pair) { const ol = orderedStatuses(other, st, today); jobs.push({ plan: other, list: ol, moving: sessionsToShift(ol, pickup.date) }); }
+  const next = { ...st, plans: plansOf(st).slice() };
+  for (const j of jobs) {
+    const keys = new Set(j.moving.map((s) => s.key));
+    const p = shiftedPlan(j.plan, keys, weeks, meta);
+    const problems = planProblems(p, `“${j.plan.name}”`);
+    if (problems.length) return { ...res, ok: false, error: problems[0] };
+    // A finished plan must not come back while another plan of its group is running.
+    if (j.plan.endDate < today && p.endDate >= today) {
+      const clash = runningPlans(st, today).find((x) => x.id !== j.plan.id && planGroup(x.kind) === planGroup(j.plan.kind));
+      if (clash) return { ...res, ok: false, error: `“${clash.name}” is running. Stop it first: one ${groupWord(j.plan.kind)} at a time.` };
+    }
+    next.plans = next.plans.map((x) => (x.id === p.id ? p : x));
+    res.plans.push(p);
+    const movingKeys = keys;
+    res.items.push({
+      plan: j.plan, before: j.plan.endDate, after: p.endDate, moving: j.moving,
+      leftMissed: j.list.filter((s) => s.status === 'missed' && !movingKeys.has(s.key)),
+      keptDone: j.list.filter((s) => BREAK_DONE.includes(s.status) && j.moving.length && s.date >= j.moving[0].date)
+    });
+  }
+  const movedKeys = new Set(res.items.flatMap((it) => it.moving.map((s) => `${it.plan.id}|${s.key}`)));
+  res.conflicts = planConflicts(next, today).filter((c) => c.sessions.some((x) => movedKeys.has(`${x.planId}|${x.key}`)));
+  return res;
+}
+
+/** Apply a previewed shift: only the plans in it are replaced. */
+function applyShift(st, preview) {
+  if (!preview?.ok || !preview.plans.length) return { ok: false, error: preview?.error || 'Nothing to move.' };
+  st.plans = plansOf(st).map((p) => preview.plans.find((x) => x.id === p.id) || p);
+  return { ok: true, moved: preview.items.reduce((n, it) => n + it.moving.length, 0) };
+}
+
+const validShiftRecord = (e, plan) => isPlainObject(e) && Number.isInteger(e.weeks) && isPlainObject(e.prev) && isDateKey(e.prev.endDate) && isPlainObject(e.prev.sessions) &&
+  Object.entries(e.prev.sessions).every(([k, v]) => !!findSession(plan, k) && isPlainObject(v) && isDateKey(v.date) && (v.override == null || isPlainObject(v.override)));
+
+/** The last shift of a plan (and its pair), as { entries: [{ plan, e }], changed } or { error }. */
+function lastShift(st, planId, today = todayKey()) {
+  const plan = findPlan(st, planId);
+  const e = plan && Array.isArray(plan.shifts) ? plan.shifts[plan.shifts.length - 1] : null;
+  if (!e) return { error: 'There is no move to undo.' };
+  const entries = [{ plan, e }];
+  if (e.pair) {
+    const other = plansOf(st).find((p) => p.id !== plan.id && Array.isArray(p.shifts) && p.shifts.some((x) => x.pair === e.pair));
+    if (other) {
+      const oe = other.shifts[other.shifts.length - 1];
+      if (oe.pair !== e.pair) return { error: `“${other.name}” was moved again later. Undo that move first.` };
+      entries.push({ plan: other, e: oe });
+    }
+  }
+  for (const x of entries) if (!validShiftRecord(x.e, x.plan)) return { error: 'This move can\'t be undone: its record is incomplete.' };
+  // Has anything about these sessions changed since (moved, skipped, done)?
+  let changed = 0;
+  for (const { plan: p, e: x } of entries) {
+    const stat = new Map(sessionStatuses(p, st, today).map((s) => [s.key, s]));
+    for (const [k, v] of Object.entries(x.after?.sessions || {})) {
+      const s = findSession(p, k), o = p.overrides?.[k] || null;
+      if (!s || s.date !== v.date || JSON.stringify(o) !== JSON.stringify(v.override) || BREAK_DONE.includes(stat.get(k)?.status)) changed++;
+    }
+  }
+  return { entries, changed };
+}
+
+/** Undo the last shift exactly (and its paired one). Workouts and links are not touched. */
+function undoShift(st, planId, today = todayKey()) {
+  const last = lastShift(st, planId, today);
+  if (last.error) return { ok: false, error: last.error };
+  const out = [];
+  for (const { plan, e } of last.entries) {
+    const p = JSON.parse(JSON.stringify(plan));
+    if (!isPlainObject(p.overrides)) p.overrides = {};
+    for (const wk of p.weeks) for (const s of wk.sessions) {
+      const v = e.prev.sessions[s.key];
+      if (!v) continue;
+      s.date = v.date;
+      if (v.override) p.overrides[s.key] = JSON.parse(JSON.stringify(v.override)); else delete p.overrides[s.key];
+    }
+    p.endDate = e.prev.endDate;
+    if (isDateKey(e.prev.startDate)) p.startDate = e.prev.startDate;
+    p.shifts = p.shifts.slice(0, -1);
+    if (!p.shifts.length) delete p.shifts;
+    const late = planSessions(p).find((s) => s.date > p.endDate || (isDateKey(p.overrides[s.key]?.date) && p.overrides[s.key].date > p.endDate));
+    if (late) return { ok: false, error: `“${late.title}” was moved after ${sessionDayText(p.endDate)} since, so the move can't be undone. Move it back first.` };
+    const problems = planProblems(p, `“${plan.name}”`);
+    if (problems.length) return { ok: false, error: problems[0] };
+    out.push(p);
+  }
+  st.plans = plansOf(st).map((p) => out.find((x) => x.id === p.id) || p);
+  return { ok: true, plans: out.length };
+}
+
+/** Mark these missed sessions of an event plan skipped (each stays on its day). */
+function skipMissed(st, planId, keys, today = todayKey()) {
+  const opt = breakOptions(st, planId, today);
+  if (!opt) return { ok: false, error: 'There are no missed sessions to skip.' };
+  const allowed = new Set(opt.missed.map((s) => s.key));
+  const list = keys.filter((k) => allowed.has(k));
+  if (!list.length) return { ok: false, error: 'Choose at least one missed session.' };
+  for (const k of list) { const r = skipSession(st, planId, k, today); if (!r.ok) return r; }
+  return { ok: true, skipped: list.length };
+}
