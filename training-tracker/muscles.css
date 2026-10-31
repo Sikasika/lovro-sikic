@@ -94,3 +94,10 @@
 .mus-ex-name { font-weight: 600; overflow-wrap: anywhere; }
 .mus-slash { color: var(--muted); font-weight: 500; }
 .mus-list-title { display: flex; justify-content: space-between; gap: 8px; }
+
+/* Exercise editor: Muscle Groups */
+.mus-ed-intro { margin-top: 0; }
+.mus-ed-label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 4px 6px; }
+.mus-chips .cat-option { font-size: 14px; padding: 4px 3px; line-height: 1.2; }
+.mus-ed-status.warn { color: var(--danger); }
+.mus-ed-clear { display: block; margin: 4px 4px 0; }

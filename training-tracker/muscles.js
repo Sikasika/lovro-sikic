@@ -334,3 +334,31 @@ document.addEventListener('click', (ev) => {
   const el = ev.target.closest('#view [data-muscle]');
   if (el) openMuscleSheet(el.dataset.muscle);
 });
+
+/* ---------- Exercise editor: Muscle Groups (used by openExerciseEditor in app.js) ---------- */
+
+/** The Muscle Groups section of the Add/Edit Exercise sheet for draft d ({ name, category, primary, secondary }). */
+function exerciseMusclesEditorHtml(d) {
+  const chips = (role, list) => `
+      <div class="cat-grid mus-chips" role="group" aria-label="${role === 'p' ? 'Primary' : 'Secondary'} muscles">
+        ${MUSCLE_GROUPS.map((g) => `<button type="button" class="cat-option ${list.includes(g.id) ? 'on' : ''}" data-action="exd-mus" data-role="${role}" data-v="${g.id}" aria-pressed="${list.includes(g.id)}">${esc(g.label)}</button>`).join('')}
+      </div>`;
+  const any = d.primary.length || d.secondary.length;
+  const builtIn = EXERCISE_MUSCLES[muscleNameKey(d.name)];
+  const names = (ids) => ids.map(muscleLabel).join(', ');
+  const cardio = muscleExcluded({ name: d.name, category: d.category });
+  let status;
+  if (d.primary.length) status = `Assigned here: ${names(d.primary)}${d.secondary.length ? `; secondary ${names(d.secondary)}` : ''}.${builtIn ? ' This replaces the built-in mapping.' : ''}`;
+  else if (d.secondary.length) status = 'Choose at least one primary muscle, or clear the secondary ones to leave the exercise without an assignment.';
+  else if (builtIn) status = `Nothing selected: the built-in mapping for “${d.name.trim()}” applies (${names(builtIn.primary)}${builtIn.secondary.length ? `; secondary ${names(builtIn.secondary)}` : ''}). Select muscles to replace it.`;
+  else status = 'Nothing selected: this exercise is not mapped and is listed under “Not mapped”.';
+  return `
+      <div class="section-title">Muscle Groups</div>
+      <p class="tpl-hint mus-ed-intro">Primary muscles receive full credit; secondary muscles receive half credit in the muscle activity overview.</p>
+      <div class="mus-ed-label">Primary</div>
+      ${chips('p', d.primary)}
+      <div class="mus-ed-label">Secondary</div>
+      ${chips('s', d.secondary)}
+      <p class="tpl-hint mus-ed-status${d.secondary.length && !d.primary.length ? ' warn' : ''}" role="status">${esc(status)}${cardio ? ' Cardio exercises are not counted in the muscle overview.' : ''}</p>
+      ${any ? '<button type="button" class="link small mus-ed-clear" data-action="exd-mus-clear">Clear muscle groups</button>' : ''}`;
+}

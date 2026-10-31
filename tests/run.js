@@ -28,7 +28,7 @@ const crawlWidths = quick ? [375] : [320, 375, 414];
 // Suites taking (outDir, scheme)
 const classic = ['logging-test', 'tpl-test', 'cardio-test', 'wedit-test', 'exlib-test', 'units-test', 'backup-test', 'ps-test', 'stats-test', 'stats-test-ny', 'insights-test', 'plan-test', 'format-test', 'program-test', 'run-test', 'sport-test'];
 // Suites taking (scheme, width)
-const sized = ['wk-test', 'bw-test', 'bwi-test', 'hist-test', 'prog-test', 'nav-test', 'safety-test', 'awake-test', 'break-test', 'muscles-test'];
+const sized = ['wk-test', 'bw-test', 'bwi-test', 'hist-test', 'prog-test', 'nav-test', 'safety-test', 'awake-test', 'break-test', 'muscles-test', 'exmus-test'];
 
 const list = [];
 for (const sc of schemes) {

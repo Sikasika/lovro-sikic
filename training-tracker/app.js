@@ -1394,7 +1394,9 @@ function openExerciseManager() {
 function openExerciseEditor(id) {
   if (id !== undefined) {
     const ex = id ? exById(id) : null;
-    ui.exdraft = { id: ex?.id || null, name: ex?.name || '', category: ex ? catOf(ex) : (ui.exm?.cat !== 'all' && ui.exm?.cat) || 'Other' };
+    const own = ex && exerciseMuscles(ex)?.source === 'exercise' ? exerciseMuscles(ex) : null;
+    ui.exdraft = { id: ex?.id || null, name: ex?.name || '', category: ex ? catOf(ex) : (ui.exm?.cat !== 'all' && ui.exm?.cat) || 'Other',
+      primary: own ? own.primary.slice() : [], secondary: own ? own.secondary.slice() : [], musTouched: false };
   }
   const d = ui.exdraft;
   const ex = d.id ? exById(d.id) : null;
@@ -1420,6 +1422,7 @@ function openExerciseEditor(id) {
       ${cardioChange ? `<div class="card card-pad stats-empty" style="margin-top:10px">${wasCardio
         ? 'New sets will be logged as weight × reps. Distance and time already logged stay in your history and are still shown.'
         : 'New sets will be logged as distance and time. Weight and reps already logged stay in your history.'}</div>` : ''}
+      ${exerciseMusclesEditorHtml(d)}
       ${d.id ? `
         <div class="section-title">Usage</div>
         <div class="card card-pad stats-empty">${esc(usageText(usage))}${used ? '. Renaming or changing the category updates it everywhere; logged sets are not changed.' : '.'}</div>
@@ -1441,12 +1444,17 @@ function saveExerciseDraft() {
   if (!name) { alert('Please enter a name.'); return; }
   const clash = state.exercises.find((e) => e.id !== d.id && e.name.trim().toLowerCase() === name.toLowerCase());
   if (clash) { alert(`There is already an exercise called “${clash.name}”${clash.archived ? ' (archived)' : ''}.`); return; }
+  // Muscle groups: only written when the selection was changed here (renaming or changing the
+  // category never touches them). Nothing selected removes the assignment.
+  if (d.musTouched && !d.primary.length && d.secondary.length) { alert('Choose at least one primary muscle, or clear the secondary muscles to leave the exercise without an assignment.'); return; }
+  const muscles = d.primary.length ? { primary: d.primary.slice(), secondary: d.secondary.filter((m) => !d.primary.includes(m)) } : null;
   if (d.id) {
     const ex = exById(d.id);
     ex.name = name;
     ex.category = d.category;
+    if (d.musTouched) { if (muscles) ex.muscles = muscles; else delete ex.muscles; }
   } else {
-    state.exercises.push({ id: uid(), name, category: d.category });
+    state.exercises.push({ id: uid(), name, category: d.category, ...(muscles ? { muscles } : {}) });
   }
   save();
   ui.exdraft = null;
@@ -1549,6 +1557,20 @@ document.addEventListener('click', (ev) => {
     case 'exm-new': openExerciseEditor(null); setTimeout(() => $('#exd-name')?.focus(), 300); break;
     case 'exm-edit': openExerciseEditor(id); break;
     case 'exd-cat': ui.exdraft.category = el.dataset.v; openExerciseEditor(); break;
+    case 'exd-mus': case 'exd-mus-clear': {
+      const d = ui.exdraft;
+      if (!d) break;
+      if (action === 'exd-mus-clear') { d.primary = []; d.secondary = []; } else {
+        const m = el.dataset.v, mine = el.dataset.role === 'p' ? 'primary' : 'secondary', other = mine === 'primary' ? 'secondary' : 'primary';
+        if (d[mine].includes(m)) d[mine] = d[mine].filter((x) => x !== m);
+        else { d[mine] = [...d[mine], m]; d[other] = d[other].filter((x) => x !== m); } // a muscle is primary or secondary, never both
+      }
+      d.musTouched = true;
+      const body = $('#sheet .sheet-body'), top = body ? body.scrollTop : 0;
+      openExerciseEditor();
+      const nb = $('#sheet .sheet-body'); if (nb) nb.scrollTop = top;
+      break;
+    }
     case 'exd-cancel': ui.exdraft = null; openExerciseManager(); break;
     case 'exd-save': saveExerciseDraft(); break;
     case 'exd-archive': {
