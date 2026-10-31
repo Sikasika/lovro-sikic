@@ -73,7 +73,7 @@ const base = (extra = {}) => ({ schemaVersion: 2, cardioExercisesAdded: true, ac
   /* C. Progress sections */
   await page.click('.tabbar [data-tab=progress]'); await wait();
   check('C Progress remembers the last section', await sub(), 'body');
-  check('C four sections', JSON.stringify(await page.$$eval('#view .subnav button', (b) => b.map((x) => x.innerText.trim()))), JSON.stringify(['Overview', 'Insights', 'Stats', 'Body']));
+  check('C five sections', JSON.stringify(await page.$$eval('#view .subnav button', (b) => b.map((x) => x.innerText.trim()))), JSON.stringify(['Overview', 'Insights', 'Muscles', 'Stats', 'Body']));
   for (const [id, text] of [['progress', 'Total workouts'], ['insights', 'Week'], ['statistics', 'Body weight'], ['body', '7-day avg']]) {
     await page.click(`#view .subnav [data-tab=${id}]`); await wait();
     check(`C ${id}: content + highlight`, `${await sub()}|${await current()}|${(await view()).includes(text)}|${await noOverflow()}`, `${id}|progress|true|true`);

@@ -16,7 +16,7 @@
 */
 
 /** Tabs that live under Progress, with their labels in the section switcher. */
-const PROGRESS_VIEWS = [['progress', 'Overview'], ['insights', 'Insights'], ['statistics', 'Stats'], ['body', 'Body']];
+const PROGRESS_VIEWS = [['progress', 'Overview'], ['insights', 'Insights'], ['muscles', 'Muscles'], ['statistics', 'Stats'], ['body', 'Body']];
 const isProgressView = (t) => PROGRESS_VIEWS.some(([id]) => id === t);
 
 function progressSubnav(current) {

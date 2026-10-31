@@ -236,9 +236,9 @@ function haptic() {
 
 /* ---------- Rendering ---------- */
 
-const TITLES = { home: 'Today', workout: 'Train', plans: 'Plans', history: 'History', progress: 'Progress', insights: 'Progress', statistics: 'Progress', body: 'Progress', settings: 'Settings' };
+const TITLES = { home: 'Today', workout: 'Train', plans: 'Plans', history: 'History', progress: 'Progress', insights: 'Progress', muscles: 'Progress', statistics: 'Progress', body: 'Progress', settings: 'Settings' };
 /** Which tab bar button is highlighted for each screen (Progress sections and Settings live under a tab). */
-const TAB_OF = { insights: 'progress', statistics: 'progress', body: 'progress', settings: 'home' };
+const TAB_OF = { insights: 'progress', muscles: 'progress', statistics: 'progress', body: 'progress', settings: 'home' };
 
 function render() {
   $('#title').textContent = TITLES[ui.tab] || '';
@@ -261,7 +261,7 @@ function render() {
   // Progress sections (home.js): Overview, Insights, Statistics, Body weight.
   if (isProgressView(ui.tab)) {
     ui.progressView = ui.tab;
-    const body = { progress: renderProgress, insights: renderInsights, statistics: renderStatistics, body: renderBodyView }[ui.tab]();
+    const body = { progress: renderProgress, insights: renderInsights, muscles: renderMusclesView, statistics: renderStatistics, body: renderBodyView }[ui.tab]();
     view.innerHTML = progressSubnav(ui.tab) + body;
   }
   if (ui.tab === 'settings') view.innerHTML = `<button type="button" class="link back-link" data-tab="home">‹ Today</button>${renderSettings()}`;

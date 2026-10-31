@@ -1103,9 +1103,10 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .gear-btn:active { background: var(--input); }
 .back-link { display: inline-block; font-size: 16px; font-weight: 600; padding: 4px 0 2px; }
 
-.subnav { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; margin: 4px -16px 0; padding: 0 16px; border-bottom: 0.5px solid var(--separator); }
+.subnav { display: grid; grid-template-columns: repeat(5, auto); justify-content: space-between; margin: 4px -16px 0; padding: 0 16px; border-bottom: 0.5px solid var(--separator); }
 .subnav button { min-width: 0; min-height: 44px; padding: 0 6px; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 600; border-bottom: 2.5px solid transparent; margin-bottom: -0.5px; white-space: nowrap; }
 .subnav button.on { color: var(--text); border-bottom-color: var(--accent); }
+@media (max-width: 374px) { .subnav button { font-size: 13px; padding: 0; } }
 
 .home-date { font-size: 15px; color: var(--muted); margin: 0 4px 10px; }
 .home-today { margin-top: 0; }
