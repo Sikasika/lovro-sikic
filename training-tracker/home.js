@@ -32,7 +32,8 @@ function renderBodyView() {
 
 /* ---------- Home ---------- */
 
-const GEAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>';
+// Classic gear (cog): eight teeth around a ring with a centre hole.
+const GEAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path stroke-linejoin="round" d="M10.3 2.6h3.4l.5 2.6c.7.2 1.3.5 1.9.9l2.2-1.5 2.4 2.4-1.5 2.2c.4.6.7 1.2.9 1.9l2.6.5v3.4l-2.6.5c-.2.7-.5 1.3-.9 1.9l1.5 2.2-2.4 2.4-2.2-1.5c-.6.4-1.2.7-1.9.9l-.5 2.6h-3.4l-.5-2.6c-.7-.2-1.3-.5-1.9-.9l-2.2 1.5-2.4-2.4 1.5-2.2c-.4-.6-.7-1.2-.9-1.9l-2.6-.5v-3.4l2.6-.5c.2-.7.5-1.3.9-1.9L4.6 6.9l2.4-2.4 2.2 1.5c.6-.4 1.2-.7 1.9-.9z"/><circle cx="12" cy="12" r="3.2"/></svg>';
 
 /** Mon–Sun of the current week: which days had completed workouts, by activity type. */
 function weekStrip(items, today) {
@@ -90,8 +91,13 @@ function homeActiveCard() {
 }
 
 /** Today's planned session from a running plan (start it from here), if any is still open. */
-function homePlannedCard(x, more = []) {
+function homePlannedCard(x, more = [], strengthCount = 0) {
   const { plan, session: s } = x;
+  // Strength sessions: "Start Today's Workout" (through the planned-session review); with more than
+  // one strength session today, the button asks which one first.
+  const startBtn = strengthCount > 1
+    ? '<button type="button" class="hero-btn" data-action="home-choose-session">Start Today\'s Workout</button>'
+    : `<button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">${sessionSport(s) === 'strength' ? 'Start Today\'s Workout' : `Start ${esc(s.title)}`}</button>`;
   const pr = planProgress(plan);
   const n = s.targets?.exercises?.length || 0;
   return `
@@ -99,7 +105,7 @@ function homePlannedCard(x, more = []) {
       <div class="home-plan-tag"><span class="plan-tag">Plan</span> ${sessionSport(s) !== 'strength' ? `${sportTag(s)} ` : ''}${esc(plan.name)} · Week ${esc(s.week)} of ${pr.weeks}</div>
       <h2 class="hero-title">Today: ${esc(s.title)}</h2>
       <p class="hero-sub">${s.targets?.run ? `${esc(runKmText(s.targets.run.km))} · about ${s.targets.run.estMin} min` : s.targets?.swim || s.targets?.ride ? esc(sportLengthText(s.targets)) : `${plural(n, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}`}${s.targets?.deload ? ' · Lighter week' : ''}${pr.completed ? ` · ${pr.completed} of ${pr.total} sessions done` : ''}</p>
-      <button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">Start ${esc(s.title)}</button>
+      ${startBtn}
       <div class="home-plan-links">
         <button type="button" class="link small" data-action="plan-session" data-id="${esc(`${plan.id}|${s.key}`)}">Skip or move</button>
         <button type="button" class="link small" data-action="start-flow">Other workout</button>
@@ -110,6 +116,8 @@ function homePlannedCard(x, more = []) {
 
 function homeTodayCard(items, today) {
   const planned = todaysPlannedSessions(sKey(today));
+  const strength = planned.filter((x) => sessionSport(x.session) === 'strength');
+  if (strength.length) return homePlannedCard(strength[0], planned.filter((x) => x !== strength[0]), strength.length);
   if (planned.length) return homePlannedCard(planned[0], planned.slice(1));
   const doneToday = items.filter((it) => sKey(it.day) === sKey(today));
   return `
@@ -118,7 +126,7 @@ function homeTodayCard(items, today) {
       <p class="hero-sub">${doneToday.length
         ? esc(doneToday.map((it) => `${it.w.name} · ${plural(workoutSetCount(it.w), 'set')}`).join(' · '))
         : runningPlans(state).length ? 'Nothing planned for today. Start a workout if you feel like it.' : 'No plan scheduled for today. Start a workout, or set up a program in Plans.'}</p>
-      <button type="button" class="hero-btn" data-action="start-flow">${doneToday.length ? 'Start Another Workout' : 'Start Workout'}</button>
+      <button type="button" class="hero-btn" data-action="start-flow">Start Workout</button>
     </section>`;
 }
 
@@ -171,4 +179,25 @@ function renderHome(action) {
     ${homeRecent(items, today)}
     ${homeBodyWeight()}
     ${!items.length && !weighIns().length ? '<p class="stats-note">Your week, recent training and body-weight trend appear here as you log them.</p>' : ''}`;
+}
+
+/** More than one strength session today: choose one; each goes to the usual planned-session review. */
+function openTodaysSessionChooser() {
+  const list = todaysPlannedSessions().filter((x) => sessionSport(x.session) === 'strength');
+  if (list.length === 1) { openReview('planned', `${list[0].plan.id}|${list[0].session.key}`); return; }
+  if (!list.length) { closeSheet(); render(); return; }
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Cancel</button>
+      <h2 class="truncate" style="max-width:60%">Today's workouts</h2>
+      <span style="width:52px"></span>
+    </div>
+    <div class="sheet-body">
+      <p class="tpl-hint" style="margin-top:0">${list.length} strength sessions are planned for today. Choose one to review before you begin.</p>
+      <div class="card">${list.map(({ plan, session: s }) => `
+        <button type="button" class="list-item" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">
+          <span class="grow"><span style="display:block;font-weight:600">${esc(s.title)}</span><span class="sub">${esc(plan.name)} · Week ${esc(s.week)} · ${plural((s.targets?.exercises || []).length, 'exercise')}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
+          <span class="chev" aria-hidden="true">›</span>
+        </button>`).join('')}</div>
+    </div>`);
 }

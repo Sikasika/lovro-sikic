@@ -95,7 +95,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   const bd = await page.$$eval('.hbar', (els) => els.map((e) => e.querySelector('.hbar-top').innerText.replace(/\s+/g, ' ').trim()));
   check('breakdown counts Sports', bd.find((x) => x.startsWith('Sports')), 'Sports 1 · 50%');
   await page.click('[data-saction=filter][data-v="sports"]');
-  check('Sports filter finds the workout', await page.$$eval('.stats-grid .stat', (els) => els.find((e) => e.querySelector('.lbl').textContent === 'Workouts').querySelector('.num').textContent.trim()), 1);
+  check('Sports filter finds the workout', await page.$$eval('.stats-grid .stat', (els) => els.find((e) => e.querySelector('.lbl').textContent === 'Workouts with sports').querySelector('.num').textContent.trim()), 1);
   await page.click('[data-saction=filter][data-v="all"]');
   check('workouts untouched by recategorizing', JSON.stringify((await stored()).workouts), workoutsBefore);
 

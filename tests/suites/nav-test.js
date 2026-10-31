@@ -58,7 +58,7 @@ const base = (extra = {}) => ({ schemaVersion: 2, cardioExercisesAdded: true, ac
   const data = base({ workouts, bodyweights: bws });
   await load(data);
   const before = await page.evaluate((k) => localStorage.getItem(k), KEY);
-  check('B trained today', `${(await view()).includes('Nice work today')}|${(await page.innerText('.home-today .hero-sub')).includes('Push day')}|${await page.innerText('.home-today .hero-btn')}`, 'true|true|Start Another Workout');
+  check('B trained today', `${(await view()).includes('Nice work today')}|${(await page.innerText('.home-today .hero-sub')).includes('Push day')}|${await page.innerText('.home-today .hero-btn')}`, 'true|true|Start Workout');
   check('B week strip: today done', await page.$eval('.wk-day.today', (d) => d.classList.contains('done')), true);
   check('B week summary counts this week only', (await page.innerText('.wk-sum')).startsWith(weekday >= 1 ? '2 workouts' : '1 workout'), true);
   check('B recent: latest workout', (await page.innerText('#view [data-action=open-workout]')).includes('Push day'), true);

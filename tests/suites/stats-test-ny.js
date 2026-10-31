@@ -75,8 +75,12 @@ const check = (name, got, want) => results.push(`${String(got) === String(want) 
   // Filter: cardio, 30D
   await page.click('[data-saction=period][data-v="30d"]');
   await page.click('[data-saction=filter][data-v="cardio"]');
-  s = await summary();
-  check('cardio total', s.total, 2); check('cardio this week', s.week, 2); check('cardio streak', s.cur, '1 d'); check('cardio hours', s.hours, '1.5 h');
+  {
+    const v = (await page.innerText('#view')).replace(/\s+/g, ' ');
+    // The cardio view has its own summary (no overall cards like streaks or volume)
+    check('cardio view: workouts with cardio (30D)', /(\d+) Workouts with cardio/.exec(v)?.[1], 2);
+    check('cardio view: no overall-only cards', ['Day streak', 'Week streak', 'This month', 'Volume (', 'By activity type', 'Sets by category'].filter((x) => v.includes(x)).join(','), '');
+  }
   // Heatmap with filter: 10-27 tennis should be empty
   check('cardio filter hides sports day', await page.getAttribute('[data-day="2026-10-27"]', 'class'), 'heat-cell empty');
   await page.click('[data-saction=filter][data-v="all"]');

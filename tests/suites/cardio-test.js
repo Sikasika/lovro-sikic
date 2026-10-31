@@ -103,7 +103,7 @@ const close = (a, b) => Math.abs(a - b) < 1e-6;
   check('cycling row (no speed without time)', /Cycling 1 session · 20\.00 km(?! ·)/.test(v), true);
   check('swimming row', v.includes('Swimming 1 session · 1,500 m · 30:00 · avg 2:00 /100 m'), true);
   await page.click('[data-saction=filter][data-v="cardio"]');
-  const total = await page.$$eval('.stats-grid .stat', (els) => els.find((e) => e.querySelector('.lbl').textContent === 'Workouts').querySelector('.num').textContent.trim());
+  const total = /(\d+) Workouts with cardio/.exec((await page.innerText('#view')).replace(/\s+/g, ' '))?.[1];
   check('cardio filter counts mixed workout', total, 3);
   await page.click('[data-saction=filter][data-v="all"]');
   await page.selectOption('#stats-perf-ex', 'run');

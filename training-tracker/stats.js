@@ -96,13 +96,7 @@ function renderStatistics() {
           <div style="font-weight:600">No completed workouts yet</div>
           Finish a workout and your statistics will appear here.
         </div>`}
-      ${renderHeatmap(idx)}
-      ${renderSummary(idx)}
-      ${renderCardioSummary(idx)}
-      ${renderFrequency(idx)}
-      ${renderPerformance(idx)}
-      ${renderWeightStats()}
-      ${renderBreakdown(idx)}
+      ${statsSections(idx, f)}
       ${idx.skipped ? `<p class="stats-note">${idx.skipped} workout${idx.skipped === 1 ? ' was' : 's were'} left out because ${idx.skipped === 1 ? 'it has' : 'they have'} no completed sets or an invalid date.</p>` : ''}
     `;
   } catch (e) {
@@ -296,12 +290,10 @@ function renderSummary(idx) {
   const avg = inPeriod.length / weeks;
   const p = STAT_PERIODS.find((x) => x.id === ui.stats.period);
 
-  const card = (value, label, hint) => `<div class="stat"><div class="num">${value}</div><div class="lbl">${label}</div>${hint ? `<div class="stat-hint">${hint}</div>` : ''}</div>`;
+  const card = statCard;
   return `
     <div class="section-title">Summary</div>
-    <div class="segmented stats-seg" role="group" aria-label="Summary period">
-      ${STAT_PERIODS.map((x) => `<button data-saction="period" data-v="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-pressed="${x.id === p.id}" aria-label="${x.label}">${x.short}</button>`).join('')}
-    </div>
+    ${statsPeriodControl()}
     <div class="stats-grid">
       ${card(inPeriod.length, 'Workouts', p.label)}
       ${card(known.length ? fmtHours(minutes) : '–', 'Training time', inPeriod.length - known.length ? `${inPeriod.length - known.length} without duration` : p.label)}
@@ -316,6 +308,90 @@ function renderSummary(idx) {
     ${f !== 'all' ? `<p class="stats-note">Showing workouts that include ${typeLabel(f).toLowerCase()}.</p>` : ''}`;
 }
 
+const statCard = (value, label, hint) => `<div class="stat"><div class="num">${value}</div><div class="lbl">${label}</div>${hint ? `<div class="stat-hint">${hint}</div>` : ''}</div>`;
+
+/** The summary period switch (7D … All), shared by every view. */
+function statsPeriodControl() {
+  const p = STAT_PERIODS.find((x) => x.id === ui.stats.period);
+  return `<div class="segmented stats-seg" role="group" aria-label="Summary period">
+      ${STAT_PERIODS.map((x) => `<button data-saction="period" data-v="${x.id}" class="${x.id === p.id ? 'on' : ''}" aria-pressed="${x.id === p.id}" aria-label="${x.label}">${x.short}</button>`).join('')}
+    </div>`;
+}
+
+/**
+ * Sections per activity filter. All keeps the full overview; each activity shows only what
+ * applies to it, from the same data and calculations:
+ *   Weights: heatmap, strength summary (+ per exercise), frequency, performance, day of week, sets by category
+ *   Cardio:  heatmap, cardio summary (per activity), frequency, performance, day of week
+ *   Sports / Other: heatmap, summary (+ per exercise), frequency, performance, day of week
+ */
+function statsSections(idx, f) {
+  if (f === 'all') {
+    return `${renderHeatmap(idx)}${renderSummary(idx)}${renderCardioSummary(idx)}${renderFrequency(idx)}${renderPerformance(idx)}${renderWeightStats()}${renderBreakdown(idx)}`;
+  }
+  if (!idx.items.some((it) => matchesFilter(it, f))) {
+    return idx.items.length ? `
+      <div class="card card-pad stats-empty" style="margin-top:12px">
+        <div style="font-weight:600">No ${esc(typeLabel(f).toLowerCase())} logged yet</div>
+        ${esc(typeLabel(f))} statistics appear here once a completed workout includes ${f === 'other' ? 'an exercise in the Other category' : esc(typeLabel(f).toLowerCase())}.
+      </div>` : '';
+  }
+  const summary = f === 'cardio'
+    ? `<div class="section-title">Cardio summary</div>${statsPeriodControl()}${renderCardioSummary(idx, true)}`
+    : renderTypeSummary(idx, f);
+  return `${renderHeatmap(idx)}${summary}${renderFrequency(idx)}${renderPerformance(idx)}${renderBreakdown(idx, { types: false, cats: f === 'weights' })}
+    ${f === 'weights' ? '<p class="stats-note">Sets per muscle group are in <button type="button" class="link small stats-inline-link" data-tab="muscles">Progress → Muscles</button>.</p>' : ''}`;
+}
+
+/**
+ * Summary for one activity type (Weights, Sports, Other) in the summary period: workouts that
+ * include it, and that activity's own exercises, sets (warm-ups not counted, as for volume)
+ * and, for weights, volume (weight × reps, the same rule as the overall volume).
+ */
+function renderTypeSummary(idx, f) {
+  const { today } = idx;
+  const mine = idx.items.filter((it) => matchesFilter(it, f));
+  const range = periodRange(ui.stats.period, today, mine);
+  const p = STAT_PERIODS.find((x) => x.id === ui.stats.period);
+  const inPeriod = mine.filter((it) => it.day >= range.from && it.day <= range.to);
+  const thisWeek = mine.filter((it) => it.day >= startOfWeek(today)).length;
+  const exs = new Map();
+  let sets = 0, volume = 0, weighted = false;
+  for (const it of inPeriod) {
+    for (const e of it.entries) {
+      if (entryType(e) !== f) continue;
+      const x = exs.get(e.exerciseId) || { sessions: 0, sets: 0, volume: 0, weighted: false };
+      x.sessions++;
+      completedSets(e).filter((s) => s.type !== 'warmup').forEach((s) => {
+        x.sets++; sets++;
+        const w = num(s.weight) || 0, r = num(s.reps) || 0;
+        if (w > 0 && r > 0) { x.volume += w * r; volume += w * r; x.weighted = true; weighted = true; }
+      });
+      exs.set(e.exerciseId, x);
+    }
+  }
+  const label = typeLabel(f).toLowerCase();
+  const weights = f === 'weights';
+  const rows = [...exs].sort((a, b) => b[1].sets - a[1].sets || exName(a[0]).localeCompare(exName(b[0]))).map(([id, x]) => {
+    const parts = [`${x.sessions} session${x.sessions === 1 ? '' : 's'}`, `${x.sets} set${x.sets === 1 ? '' : 's'}`];
+    if (weights && x.weighted) parts.push(`${fmtWeight(x.volume)} ${unit()} volume`);
+    return `<div class="list-item"><div class="grow"><div>${esc(exName(id))}${exById(id)?.archived ? ' <span class="muted">(archived)</span>' : ''}</div><div class="sub">${esc(parts.join(' · '))}</div></div></div>`;
+  }).join('');
+  return `
+    <div class="section-title">${weights ? 'Strength' : esc(typeLabel(f))} summary</div>
+    ${statsPeriodControl()}
+    <div class="stats-grid">
+      ${statCard(inPeriod.length, `Workouts with ${esc(label)}`, p.label)}
+      ${statCard(fmtNum(inPeriod.length / Math.max(1, range.days / 7)), 'Avg / week', p.label)}
+      ${statCard(thisWeek, 'This week', 'Since Monday')}
+      ${statCard(sets, 'Sets', 'Warm-ups not counted')}
+      ${weights ? statCard(weighted ? fmtWeight(volume) : '–', `Volume (${esc(unit())})`, weighted ? 'Weight × reps' : 'No weighted sets') : ''}
+      ${statCard(exs.size, `Exercise${exs.size === 1 ? '' : 's'}`, p.label)}
+    </div>
+    ${rows ? `<div class="card" style="margin-top:10px">${rows}</div>` : `<div class="card card-pad stats-empty" style="margin-top:10px">No ${esc(label)} in this period.</div>`}
+    <p class="stats-note">${weights ? 'Only weights exercises count here, also in mixed workouts.' : `Only ${esc(label)} exercises count here, also in mixed workouts.`}</p>`;
+}
+
 /* ----- 2b. Cardio summary ----- */
 
 /**
@@ -323,9 +399,10 @@ function renderSummary(idx) {
  * that also contain strength exercises. Distances are never added up across activities;
  * time is (it means the same thing for every activity).
  */
-function renderCardioSummary(idx) {
+function renderCardioSummary(idx, inFilter = false) {
   const f = ui.stats.filter;
   if (f !== 'all' && f !== 'cardio') return '';
+  const title = (p) => (inFilter ? '' : `<div class="section-title">Cardio · ${p.label}</div>`);
   const range = periodRange(ui.stats.period, idx.today, idx.items);
   const period = STAT_PERIODS.find((x) => x.id === ui.stats.period);
   const acts = new Map();
@@ -349,7 +426,7 @@ function renderCardioSummary(idx) {
   }
   if (!acts.size) {
     return `
-      <div class="section-title">Cardio · ${period.label}</div>
+      ${title(period)}
       <div class="card card-pad stats-empty">No cardio in this period.</div>`;
   }
   const rows = [...acts].sort((x, y) => y[1].sessions.size - x[1].sessions.size).map(([id, a]) => {
@@ -364,8 +441,8 @@ function renderCardioSummary(idx) {
     return `<div class="list-item"><div class="grow"><div>${esc(exName(id))}</div><div class="sub">${esc(parts.join(' · '))}</div></div></div>`;
   }).join('');
   return `
-    <div class="section-title">Cardio · ${period.label}</div>
-    <div class="stats-grid" style="margin-top:0">
+    ${title(period)}
+    <div class="stats-grid" style="margin-top:${inFilter ? '10px' : '0'}">
       <div class="stat"><div class="num">${workouts.size}</div><div class="lbl">Workouts with cardio</div></div>
       <div class="stat"><div class="num">${totalSec ? fmtClock(totalSec) : '–'}</div><div class="lbl">Cardio time logged</div></div>
       <div class="stat"><div class="num">${acts.size}</div><div class="lbl">Activit${acts.size === 1 ? 'y' : 'ies'}</div></div>
@@ -598,7 +675,7 @@ function hbar(label, value, pct, extra = '', color = 'var(--accent)') {
     </div>`;
 }
 
-function renderBreakdown(idx) {
+function renderBreakdown(idx, opts = { types: true, cats: true }) {
   const { today } = idx;
   const f = ui.stats.filter;
   const range = periodRange(ui.stats.period, today, idx.items);
@@ -645,13 +722,13 @@ function renderBreakdown(idx) {
 
   return `
     <div class="section-title">Breakdown · ${period.label}</div>
-    <div class="card card-pad">
+    ${opts.types ? `<div class="card card-pad">
       <div class="stats-chart-title">By activity type</div>
       ${typeRows}
       <p class="stats-note" style="margin:4px 0 0">${inPeriod.length} workouts, counted by main activity. Ignores the activity filter.</p>
-    </div>
+    </div>` : ''}
 
-    <div class="card card-pad" style="margin-top:12px">
+    <div class="card card-pad" style="margin-top:${opts.types ? '12px' : '0'}">
       <div class="stats-chart-title">By day of the week${f === 'all' ? '' : ` · ${typeLabel(f)}`}</div>
       ${filtered.length ? `<div class="dow">
         ${dow.map((c, i) => `
@@ -663,13 +740,13 @@ function renderBreakdown(idx) {
       </div>` : '<div class="stats-empty">No matching workouts in this period.</div>'}
     </div>
 
-    <div class="card card-pad" style="margin-top:12px">
+    ${opts.cats ? `<div class="card card-pad" style="margin-top:12px">
       <div class="stats-chart-title">Sets by category${f === 'all' ? '' : ` · ${typeLabel(f)}`}</div>
       ${setTotal
         ? [...cats].sort((a, b) => b[1].sets - a[1].sets).map(([c, x]) => hbar(esc(c), `${x.sets} sets · ${Math.round((x.sets / setTotal) * 100)}%`, (x.sets / setTotal) * 100, `${x.sessions} exercise session${x.sessions === 1 ? '' : 's'}`)).join('')
         : '<div class="stats-empty">No sets in this period.</div>'}
       <p class="stats-note" style="margin:4px 0 0">Completed sets, warm-ups included. Categories come from Settings → Manage exercises.</p>
-    </div>`;
+    </div>` : ''}`;
 }
 
 /* ---------- Events ---------- */

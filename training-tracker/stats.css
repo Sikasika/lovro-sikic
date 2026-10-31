@@ -182,3 +182,4 @@
 .chart .bar-partial { fill: var(--accent); opacity: 0.4; }
 .plateau-flag { border-left: 3px solid var(--heat-cardio); padding-left: 10px; }
 .reps-change { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stats-inline-link { padding: 0; font-size: 13px; }

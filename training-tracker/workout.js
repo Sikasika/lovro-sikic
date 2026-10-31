@@ -904,6 +904,7 @@ function handleWorkoutAction(action, el, ei, si) {
   switch (action) {
     case 'start-flow': openStartChooser(); break;
     case 'review': openReview(el.dataset.kind, el.dataset.id); break;
+    case 'home-choose-session': openTodaysSessionChooser(); break;
     case 'swap-exercise': ui.swapEntry = ei; openExercisePicker('swap'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
     case 'repeat': openReview('repeat', el.dataset.id); break;
     case 'begin': {
