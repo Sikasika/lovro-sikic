@@ -5,7 +5,9 @@
 
   The figure is drawn on a 200 × 440 grid per view. Each muscle region is drawn once for
   the figure's left half and mirrored for the right half, so both sides share one muscle id.
-  Regions carry data-muscle (the group id) and a state class: m-none | m-partial | m-trained.
+  Regions carry data-muscle (the group id). Colour is a heatmap of weighted sets per week:
+  0 → grey (m-none); above 0 → one blue scale (m-on) from very light to strong, with the
+  intensity --t = min(sets/week, MUSCLE_HEAT_MAX) / MUSCLE_HEAT_MAX (see muscles.css).
   Not loaded by the app yet: this file currently only provides the figure for review.
 */
 
@@ -80,16 +82,25 @@ const MUSCLE_SHAPES = {
 };
 
 const MIRROR = 'matrix(-1 0 0 1 200 0)';
+/** Weighted sets per week at which the colour reaches full strength. */
+const MUSCLE_HEAT_MAX = 12;
+const muscleHeat = (v) => (v > 0 ? Math.min(v, MUSCLE_HEAT_MAX) / MUSCLE_HEAT_MAX : 0);
+/** Coarse level 1–4 (used where colour mixing isn't supported). */
+const muscleHeatLevel = (v) => (v > 0 ? Math.min(4, 1 + Math.floor(muscleHeat(v) * 4 - 1e-9)) : 0);
+const fmtSetsWeek = (v) => { const r = Math.round(v * 10) / 10; return `${r.toLocaleString()} set${r === 1 ? '' : 's'}/week`; };
 
 /**
- * Front and back figures as HTML. states: { [muscleId]: 'none' | 'partial' | 'trained' };
- * labels: { [muscleId]: text for the region's accessible name }; selected: a muscle id.
+ * Front and back figures as HTML. values: { [muscleId]: weighted sets per week };
+ * selected: a muscle id (drawn with an outline, never a different colour).
  */
-function muscleFigureSvg({ states = {}, labels = {}, selected = null } = {}) {
+function muscleFigureSvg({ values = {}, selected = null } = {}) {
   const region = (id, d, view) => {
-    const st = states[id] || 'none';
-    return `<path d="${d}" class="m-region m-${st}${selected === id ? ' m-selected' : ''}" data-muscle="${id}" data-view="${view}"/>`;
+    const v = Number(values[id]) || 0;
+    const heat = v > 0 ? ` m-on m-l${muscleHeatLevel(v)}" style="--t:${muscleHeat(v).toFixed(3)}` : ' m-none';
+    return `<path d="${d}" class="m-region${heat}" data-muscle="${id}" data-view="${view}"/>`;
   };
+  const outline = (name) => (selected && MUSCLE_SHAPES[name].some(([id]) => id === selected)
+    ? `<g class="m-outline">${MUSCLE_SHAPES[name].filter(([id]) => id === selected).map(([, d]) => `<path d="${d}"/>`).join('')}<g transform="${MIRROR}">${MUSCLE_SHAPES[name].filter(([id]) => id === selected).map(([, d]) => `<path d="${d}"/>`).join('')}</g></g>` : '');
   const view = (name, title) => {
     const shapes = MUSCLE_SHAPES[name];
     const half = shapes.map(([id, d]) => region(id, d, name)).join('');
@@ -98,17 +109,27 @@ function muscleFigureSvg({ states = {}, labels = {}, selected = null } = {}) {
     return `
       <figure class="mf-view">
         <svg viewBox="0 0 200 440" class="mf-svg" role="group" aria-label="${title} view">
-          <defs>
-            <pattern id="mf-hatch-${name}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect width="5" height="5" class="mf-hatch-bg"/><rect width="2.2" height="5" class="mf-hatch-fg"/>
-            </pattern>
-          </defs>
           <g class="mf-body">${BODY_WHOLE.join('')}${BODY_HALF.map((d) => `<path d="${d}"/>`).join('')}<g transform="${MIRROR}">${BODY_HALF.map((d) => `<path d="${d}"/>`).join('')}</g></g>
-          <g class="mf-muscles" style="--hatch:url(#mf-hatch-${name})">${half}<g transform="${MIRROR}">${half}</g></g>
+          <g class="mf-muscles">${half}<g transform="${MIRROR}">${half}</g></g>
+          ${outline(name)}
         </svg>
         <figcaption>${title}</figcaption>
-        <div class="mf-hidden-buttons">${ids.map((id) => `<button type="button" class="sr-only" data-muscle="${id}" aria-label="${muscleLabel(id)}${labels[id] ? `: ${labels[id]}` : ''}"></button>`).join('')}</div>
+        <div class="mf-hidden-buttons">${ids.map((id) => `<button type="button" class="sr-only" data-muscle="${id}" aria-label="${muscleLabel(id)}: ${Number(values[id]) > 0 ? fmtSetsWeek(Number(values[id])) : 'no sets'}"${selected === id ? ' aria-pressed="true"' : ''}></button>`).join('')}</div>
       </figure>`;
   };
   return `<div class="muscle-figure">${view('front', 'Front')}${view('back', 'Back')}</div>`;
+}
+
+/** Legend: grey for no sets, then the blue scale with weighted sets/week marks. */
+function muscleLegendHtml() {
+  const cells = Array.from({ length: 24 }, (_, i) => (i + 0.5) / 24);
+  return `
+    <div class="mf-legend" aria-label="Colour scale: grey means no sets; blue gets stronger with more weighted sets per week, up to ${MUSCLE_HEAT_MAX} or more.">
+      <span class="mf-key"><i class="m-none-swatch"></i>No sets</span>
+      <span class="mf-scale">
+        <span class="mf-bar">${cells.map((t) => `<i class="m-on m-l${Math.min(4, 1 + Math.floor(t * 4))}" style="--t:${t.toFixed(3)}"></i>`).join('')}</span>
+        <span class="mf-ticks"><span>&lt;1</span><span>4</span><span>8</span><span>${MUSCLE_HEAT_MAX}+</span></span>
+      </span>
+    </div>
+    <div class="mf-legend-note">Weighted sets per week</div>`;
 }
