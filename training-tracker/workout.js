@@ -437,7 +437,6 @@ function renderEntry(entry, i, letters = []) {
       ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${name}"></div>` : ''}
       ${last?.note ? `<div class="ex-hint">Last note: “${esc(last.note)}”</div>` : ''}
       ${entry.planned ? `<div class="ex-target"><span class="rec-k">Target</span><span>${entry.planned.sets} × ${entry.planned.min}–${entry.planned.max} reps${entry.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(entry.swappedFrom))}</span>` : ''}</span></div>` : ''}
-      ${ck ? '' : `<div class="prog-wrap" data-prog="${i}">${liveProgression(i)}</div>`}
       <div class="set-grid${ck ? ' cardio' : ''}">
         <div class="set-head" aria-hidden="true">
           <span>Set</span><span>Previous</span>
@@ -447,6 +446,7 @@ function renderEntry(entry, i, letters = []) {
         ${entry.sets.map((s, j) => setRow(i, s, j, labels[j], ck, lastSets)).join('')}
       </div>
       ${ck ? '<div class="ex-hint">Time in minutes (25) or mm:ss (25:30). Leave blank what you didn\'t measure.</div>' : ''}
+      ${ck ? '' : `<div class="prog-wrap" data-prog="${i}">${liveProgression(i)}</div>`}
       <div class="ex-foot">
         <button type="button" class="ex-add-set" data-action="add-set" data-entry="${i}">＋ Add set</button>
         ${entry.sets.length > 1 ? `<button type="button" class="ex-remove-set" data-action="remove-set" data-entry="${i}">Remove last</button>` : ''}
@@ -495,7 +495,10 @@ function liveProgression(i) {
   const lastLine = prev
     ? `<div class="prog-last"><span class="rec-k">Last</span><span>${esc(shortDay(prev.workout.start))}: ${esc(prev.sets.map(shortSet).join(', '))}</span></div>`
     : '<div class="prog-last muted">No previous session with working sets</div>';
-  const trend = today.length && prev ? trendHtml(strengthTrend(today, prev.sets), `today vs ${shortDay(prev.workout.start)}`) : '';
+  // The trend and "Next" lines are always there (placeholders until there is something to say),
+  // so the panel keeps its shape when the first working set is ticked.
+  const trend = today.length && prev ? trendHtml(strengthTrend(today, prev.sets), `today vs ${shortDay(prev.workout.start)}`)
+    : prev ? `<div class="trend none"><span class="trend-t">Trend vs ${esc(shortDay(prev.workout.start))} appears after your first working set.</span></div>` : '';
   // A program's rep range for this exercise applies to both (the target is for today's session).
   const range = repRange(e.planned);
   const advice = today.length ? progressionAdvice(today, weightStep(), range) : prev ? progressionAdvice(prev.sets, weightStep(), range) : null;
@@ -503,7 +506,10 @@ function liveProgression(i) {
   const kg = advice ? (advice.action === 'keep' ? advice.load : advice.next) : null;
   const fillable = kg != null && e.sets.some((s) => setType(s) === 'working' && !s.done && (s.weight === '' || s.weight == null));
   const use = fillable ? `<button type="button" class="rec-use" data-action="use-weight" data-entry="${i}" data-kg="${kg}">Use ${esc(loadText(kg))}</button>` : '';
-  return `<div class="prog">${lastLine}${trend}${adviceHtml(advice, 'Next', basis, use)}</div>`;
+  // No suggestion: either nothing logged yet, or the sets have no weight (bodyweight).
+  const none = today.length || prev ? 'No weight suggestion: these sets have no added weight.' : 'A suggestion appears after your first working set.';
+  const next = adviceHtml(advice, 'Next', basis, use) || `<div class="rec rec-none"><span class="rec-k">Next</span><span class="rec-t"><span class="rec-basis">${none}</span></span></div>`;
+  return `<div class="prog">${lastLine}${trend}${next}</div>`;
 }
 
 /** Re-render progression panels whose content changed (after ticks and typing). */
@@ -511,7 +517,12 @@ function refreshProgression() {
   if (!state.active) return;
   document.querySelectorAll('#view .prog-wrap').forEach((el) => {
     const html = liveProgression(+el.dataset.prog);
-    if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+    if (el.dataset.html === html) return;
+    // The panel sits below the sets, and keeps the height it had so far, so a shorter
+    // suggestion never pulls the next controls up under a finger.
+    const h = el.offsetHeight;
+    if (h > (+el.dataset.minh || 0)) { el.dataset.minh = h; el.style.minHeight = `${h}px`; }
+    el.innerHTML = html; el.dataset.html = html;
   });
 }
 
@@ -547,6 +558,9 @@ function syncWorkoutStatus() {
   const w = state.active;
   const view = $('#view');
   if (!w || !view) return;
+  // Reserve one spare line under each suggestion panel when it is first drawn, so a longer
+  // suggestion after a tick doesn't push the next exercise down (it never shrinks either).
+  view.querySelectorAll('.prog-wrap:not([data-minh])').forEach((el) => { const h = el.offsetHeight + 22; el.dataset.minh = h; el.style.minHeight = `${h}px`; });
   const next = nextSetPosition(w.entries);
   w.entries.forEach((e, i) => {
     const card = view.querySelector(`.ex-card[data-entry="${i}"]`);
@@ -575,23 +589,49 @@ function syncWorkoutStatus() {
 }
 
 /** Tick or untick one set. */
+/*
+  What the last tick of a set did, so unticking can undo exactly that (in memory only, keyed by
+  the set object): the weight/reps it filled in from the placeholders, and the rest it started.
+  Values typed by hand are never in here, and a filled value edited afterwards is dropped from it.
+*/
+const tickEffects = new WeakMap();
+
 function toggleSet(ei, si) {
   const entry = state.active?.entries[ei];
   const set = entry?.sets[si];
   if (!set) return;
   set.done = !set.done;
-  if (set.done && fillFromSuggestion(entry, si)) {
-    // Show the values that were filled in from the placeholders.
-    const row = document.querySelector(`#view .set-row[data-entry="${ei}"][data-set="${si}"]`);
-    const wIn = row?.querySelector('[data-field="weight"]');
-    const rIn = row?.querySelector('[data-field="reps"]');
-    if (wIn) wIn.value = inputWeight(num(set.weight));
-    if (rIn) rIn.value = set.reps ?? '';
+  const row = document.querySelector(`#view .set-row[data-entry="${ei}"][data-set="${si}"]`);
+  const wIn = row?.querySelector('[data-field="weight"]');
+  const rIn = row?.querySelector('[data-field="reps"]');
+  if (set.done) {
+    const before = { weight: set.weight, reps: set.reps };
+    const effect = { filled: {}, rest: null };
+    if (fillFromSuggestion(entry, si)) {
+      if (set.weight !== before.weight) effect.filled.weight = set.weight;
+      if (set.reps !== before.reps) effect.filled.reps = set.reps;
+      // Show the values that were filled in from the placeholders.
+      if (wIn) wIn.value = inputWeight(num(set.weight));
+      if (rIn) rIn.value = set.reps ?? '';
+    }
+    tickEffects.set(set, effect);
+  } else {
+    // Undo this set's tick: clear only what it filled in (and wasn't changed since), stop its rest.
+    const effect = tickEffects.get(set);
+    tickEffects.delete(set);
+    if (effect) {
+      if ('weight' in effect.filled && set.weight === effect.filled.weight) { set.weight = ''; if (wIn) wIn.value = ''; }
+      if ('reps' in effect.filled && set.reps === effect.filled.reps) { set.reps = ''; if (rIn) rIn.value = ''; }
+      if (effect.rest != null && ui.restEnd && restSeq === effect.rest) stopRest();
+    }
   }
   save();
   syncWorkoutStatus();
   // In a superset, rest only after the round's last exercise.
-  if (set.done) { haptic(); if (isLastInSuperset(state.active.entries, ei)) { primeRestSound(); startRest(); } }
+  if (set.done) {
+    haptic();
+    if (isLastInSuperset(state.active.entries, ei)) { primeRestSound(); startRest(); if (ui.restEnd) tickEffects.get(set).rest = restSeq; }
+  }
 }
 
 function addExerciseToWorkout(exerciseId) {
@@ -991,6 +1031,8 @@ function handleWorkoutInput(t) {
     const set = state.active.entries[+t.dataset.entry]?.sets[+t.dataset.set];
     if (!set) return true;
     const value = t.value.replace(',', '.');
+    const effect = tickEffects.get(set);
+    if (effect) delete effect.filled[t.dataset.field];
     if (t.dataset.field === 'weight') {
       // Typed in the selected unit, stored in kg.
       const v = num(value);

@@ -1317,3 +1317,7 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .sched-chev { transition: transform 0.15s; }
 .sched-chev.open { transform: rotate(90deg); }
 .plan-week-title { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--text); }
+/* Progression panel below the sets (workout.js): a little space from the set rows. */
+.prog-wrap { margin-top: 6px; }
+.prog .rec { min-height: 48px; }
+.prog .rec-none { box-shadow: inset 3px 0 0 var(--separator); background: var(--input); }

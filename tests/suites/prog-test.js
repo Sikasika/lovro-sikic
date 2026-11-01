@@ -111,8 +111,8 @@ const baseState = (workouts, extra = {}) => ({ schemaVersion: 2, cardioExercises
     { exerciseId: 'run', sets: [{ weight: '', reps: '', done: false }] }] };
   await load(baseState(hw, { active }), 'workout');
   const panel = (i) => page.$eval(`.prog-wrap[data-prog="${i}"]`, (el) => el.innerText.replace(/\s+/g, ' ').trim().replace(/^LAST\b/, 'Last').replace(/ NEXT /, ' Next ').replace(/^NEXT /, 'Next ')).catch(() => 'none');
-  check('D before ticking: last session + recommendation based on it, no trend', await panel(0), 'Last Tue, 27 Oct: 60×12, 60×12 Next Increase weight → 62.5 kg based on Tue, 27 Oct Use 62.5 kg');
-  check('D no previous working sets: says so, no recommendation yet', await panel(1), 'No previous session with working sets');
+  check('D before ticking: last session, trend placeholder, recommendation based on it', await panel(0), 'Last Tue, 27 Oct: 60×12, 60×12 Trend vs Tue, 27 Oct appears after your first working set. Next Increase weight → 62.5 kg based on Tue, 27 Oct Use 62.5 kg');
+  check('D no previous working sets: says so, no recommendation yet', await panel(1), 'No previous session with working sets Next A suggestion appears after your first working set.');
   check('D cardio: no progression panel', await page.$('.prog-wrap[data-prog="3"]'), null);
   // Use: fills only empty weights of unticked working sets
   await page.click('[data-action=use-weight][data-entry="0"]'); await page.waitForTimeout(200);
@@ -143,7 +143,7 @@ const baseState = (workouts, extra = {}) => ({ schemaVersion: 2, cardioExercises
   // Bodyweight exercise: last line, trend after a tick, never a weight recommendation
   await page.fill('[data-field=reps][data-entry="2"][data-set="0"]', '9');
   await page.click('[data-action=toggle-set][data-entry="2"][data-set="0"]'); await page.waitForTimeout(150);
-  check('D bodyweight: trend vs last, no recommendation', await panel(2), (t) => t.startsWith('Last Tue, 27 Oct: 9 reps') && t.includes('No significant change') && !t.includes('Next'));
+  check('D bodyweight: trend vs last, no recommendation', await panel(2), (t) => t.startsWith('Last Tue, 27 Oct: 9 reps') && t.includes('No significant change') && t.endsWith('Next No weight suggestion: these sets have no added weight.') && !t.includes('Use '));
   // Set ticking itself unaffected
   check('D ticking still works (data = screen)', await page.evaluate(() => state.active.entries[1].sets[0].done && document.querySelector('.set-row[data-entry="1"][data-set="0"]').classList.contains('done')), true);
 
