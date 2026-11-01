@@ -799,6 +799,15 @@ function openFinishSheet() {
   if (c.pendingValues) notes.push(`<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>${plural(c.pendingValues, 'set')} ${c.pendingValues === 1 ? 'has' : 'have'} values but ${c.pendingValues === 1 ? 'isn\'t' : 'aren\'t'} ticked.</b> ${saveSets ? `${c.pendingValues === 1 ? 'It is' : 'They are'} left out unless you tick ${c.pendingValues === 1 ? 'it' : 'them'}.` : ''}</div></div>`);
   if (tickedEmpty > 0) notes.push(`<div class="finish-note"><span aria-hidden="true">i</span><div>${plural(tickedEmpty, 'ticked set')} without any values ${tickedEmpty === 1 ? 'is' : 'are'} left out.</div></div>`);
   if (untickedEmpty > 0) notes.push(`<div class="finish-note"><span aria-hidden="true">i</span><div>${plural(untickedEmpty, 'empty set')} not done ${untickedEmpty === 1 ? 'is' : 'are'} left out.</div></div>`);
+  const runMin = (Date.now() - new Date(w.start)) / 60000;
+  if (runMin > LONG_WORKOUT_MIN) {
+    const st = new Date(w.start);
+    const since = `${st.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}${sDay(st) < sDay(new Date()) ? ` on ${fmtDate(w.start, { weekday: 'long', day: 'numeric', month: 'short' })}` : ''}`;
+    notes.unshift(`<div class="finish-note warn finish-long"><span aria-hidden="true">!</span><div><b>Running for ${fmtHoursMin(runMin)}</b>, since ${esc(since)}. If you finished earlier, enter when:
+      <label>Ended at <input type="time" id="finish-end" aria-label="Time the workout ended"></label>
+      <label><input type="checkbox" id="finish-long-ok"> It really lasted over 4 hours</label>
+      <div class="muted" style="margin-top:6px;font-size:14px">Otherwise it is saved as it is, but its time isn't counted in training time until you correct or confirm it in History.</div></div></div>`);
+  }
   openSheet(`
     <div class="sheet-head">
       <button type="button" class="link" data-action="close-sheet">Back</button>
@@ -824,11 +833,29 @@ function openFinishSheet() {
     </div>`);
 }
 
+/** The first moment at "HH:MM" after the start (it may be a later day), or null if it is after now. */
+function finishEndTime(startIso, hhmm, now) {
+  const start = new Date(startIso);
+  const [h, m] = hhmm.split(':').map(Number);
+  if (isNaN(start) || isNaN(h) || isNaN(m)) return null;
+  let end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, m);
+  for (let i = 1; end <= start; i++) end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i, h, m);
+  return end <= now ? end : null;
+}
+
 function saveActiveWorkout(markPending) {
   if (!state.active) { closeSheet(); render(); return; }
   const w = preparedWorkout(markPending);
   if (!w.entries.length) { toast('Tick at least one set first'); return; }
-  w.end = new Date().toISOString();
+  // Over 4 hours: the Finish sheet may give an earlier end time and/or confirm the length.
+  const endInput = $('#finish-end')?.value || '';
+  let end = new Date();
+  if (endInput) {
+    end = finishEndTime(w.start, endInput, end);
+    if (!end) { alert('That end time is later than now. Enter when the workout ended, or leave it empty.'); return; }
+  }
+  w.end = end.toISOString();
+  if ($('#finish-long-ok')?.checked && (end - new Date(w.start)) / 60000 > LONG_WORKOUT_MIN) w.durationConfirmed = true;
   if (w.plan) claimSession(state, w); // this workout now completes its planned session
   if (!state.workouts.some((x) => x.id === w.id)) {
     state.workouts.unshift(w);

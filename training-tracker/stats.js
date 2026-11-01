@@ -143,17 +143,42 @@ function heatBackground(types, level) {
   return `linear-gradient(135deg, ${types.map((t, i) => `${heatColor(t, level)} ${i * step}% ${(i + 1) * step}%`).join(', ')})`;
 }
 
+/**
+ * Minutes of one activity in a workout. All: the workout's counted time (calc.js rules).
+ * An activity filter: the workout's time when it contains nothing else; in a mixed
+ * workout (or when that time isn't counted), the time logged on that activity's sets. null when not known (never the whole
+ * mixed workout).
+ */
+function activityMinutes(it, f) {
+  if (f === 'all') return it.min;
+  if (it.types.length === 1 && it.types[0] === f && it.min != null) return it.min;
+  const sec = it.entries.filter((e) => entryType(e) === f)
+    .reduce((a, e) => a + completedSets(e).reduce((t, st) => t + (num(st.duration) || 0), 0), 0);
+  return sec > 0 ? sec / 60 : null;
+}
+
 function dayAggregates(items, f) {
   const map = new Map();
   for (const it of items) {
     if (!matchesFilter(it, f)) continue;
-    const d = map.get(it.key) || { items: [], types: new Set(), min: 0, unknown: 0 };
+    const d = map.get(it.key) || { items: [], types: new Set(), min: 0, known: 0, unknown: 0, long: 0 };
     d.items.push(it);
     (f === 'all' ? it.types : [f]).forEach((t) => d.types.add(t));
-    if (it.min == null) d.unknown++; else d.min += it.min;
+    const m = activityMinutes(it, f);
+    if (m == null) { d.unknown++; if (it.long && (f === 'all' || it.types.length === 1)) d.long++; } else { d.min += m; d.known++; }
     map.set(it.key, d);
   }
   return map;
+}
+
+/** Screen-reader / tooltip text for one heatmap day. */
+function heatDayLabel(dateLabel, agg, types, f) {
+  const n = `${agg.items.length} workout${agg.items.length === 1 ? '' : 's'}`;
+  const missing = [agg.unknown - agg.long ? `${agg.unknown - agg.long} without ${f === 'all' ? 'duration' : `a known ${typeLabel(f).toLowerCase()} time`}` : '',
+    agg.long ? `${agg.long} over 4 h not counted` : ''].filter(Boolean).join(', ');
+  if (f === 'all') return `${dateLabel}: ${n} (${types.map(typeLabel).join(', ')}), ${agg.known ? fmtHours(agg.min) : 'no counted duration'}${missing ? `, ${missing}` : ''}`;
+  const what = typeLabel(f).toLowerCase();
+  return `${dateLabel}: ${n} with ${what}, ${agg.known ? `${fmtHours(agg.min)} ${what} time` : `${what} time not known${agg.long ? ` (${agg.long} over 4 h not counted)` : ''}`}${agg.known && missing ? `, ${missing}` : ''}`;
 }
 
 function renderHeatmap(idx) {
@@ -184,7 +209,7 @@ function renderHeatmap(idx) {
       if (agg) {
         const types = STAT_TYPES.map((t) => t.id).filter((t) => agg.types.has(t));
         style += `;background:${heatBackground(types, heatLevel(agg.min))}`;
-        label = `${dateLabel}: ${agg.items.length} workout${agg.items.length === 1 ? '' : 's'} (${types.map(typeLabel).join(', ')}), ${fmtHours(agg.min)}${agg.unknown ? `, ${agg.unknown} without duration` : ''}`;
+        label = heatDayLabel(dateLabel, agg, types, f);
       }
       cells += `<button class="heat-cell${agg ? '' : ' empty'}${isToday ? ' today' : ''}" style="${style}" data-saction="day" data-day="${key}"
         tabindex="${key === focusKey ? 0 : -1}" aria-label="${esc(label)}${isToday ? ' (today)' : ''}"></button>`;
@@ -230,7 +255,9 @@ function renderHeatmap(idx) {
           <span>Shorter</span>
           ${[1, 2, 3, 4].map((l) => `<i class="sw" style="background:${heatColor(f === 'all' ? 'weights' : f, l)}" title="${['Under 30 min', '30–59 min', '60–89 min', '90+ min'][l - 1]}"></i>`).join('')}
           <span>Longer</span>
-          <span class="legend-hint">&lt;30 · 30–59 · 60–89 · 90+ min of training per day. Days whose workouts have no end time use the lightest shade.</span>
+          <span class="legend-hint">${f === 'all'
+            ? '&lt;30 · 30–59 · 60–89 · 90+ min of training per day. Days whose workouts have no end time use the lightest shade, as do workouts over 4 h that aren\'t confirmed.'
+            : `&lt;30 · 30–59 · 60–89 · 90+ min of ${esc(typeLabel(f).toLowerCase())} per day: a workout's time when it was only ${esc(typeLabel(f).toLowerCase())}, otherwise the time logged on its ${esc(typeLabel(f).toLowerCase())} sets. Days without a known ${esc(typeLabel(f).toLowerCase())} time use the lightest shade.`}</span>
         </div>
       </div>
     </div>`;
@@ -254,12 +281,13 @@ function openDaySheet(key) {
             <div class="day-name">${esc(it.w.name || 'Workout')}</div>
             <div class="day-chips">${it.types.map((t) => `<span class="type-chip"><i class="sw" style="background:var(--heat-${t})"></i>${typeLabel(t)}</span>`).join('')}</div>
             <div class="day-meta">
-              ${time(it.start)}${it.min != null ? ` – ${time(new Date(it.w.end))}` : ''} · ${fmtMin(it.min)} · ${workoutSetCount(it.w)} set${workoutSetCount(it.w) === 1 ? '' : 's'}
+              ${time(it.start)}${it.rawMin != null ? ` – ${time(new Date(it.w.end))}` : ''} · ${it.long ? `${fmtHoursMin(it.rawMin)}, over 4 h: not counted` : fmtMin(it.min)} · ${setCountText(it.w)}
               ${workoutVolume(it.w) ? ` · ${fmtWeight(workoutVolume(it.w))} ${esc(unit())} volume` : ''}
             </div>
           </div>
           ${it.entries.map((e) => `
             <div class="detail-set day-ex"><span>${esc(exName(e.exerciseId))} ${catTag(e.exerciseId)}</span><span class="muted">${esc(summarizeSets(completedSets(e), cardioKindOf(e.exerciseId)))}</span></div>`).join('')}
+          ${it.long ? `<div class="day-notes"><button type="button" class="link small" data-action="open-workout" data-id="${esc(it.w.id)}">Check the end time</button></div>` : ''}
           ${it.w.notes ? `<div class="day-notes">${esc(it.w.notes)}</div>` : ''}
         </div>`).join('') : `<div class="empty" style="padding:32px 16px">No workouts on this day.</div>`}
     </div>`);
@@ -296,7 +324,7 @@ function renderSummary(idx) {
     ${statsPeriodControl()}
     <div class="stats-grid">
       ${card(inPeriod.length, 'Workouts', p.label)}
-      ${card(known.length ? fmtHours(minutes) : '–', 'Training time', inPeriod.length - known.length ? `${inPeriod.length - known.length} without duration` : p.label)}
+      ${card(known.length ? fmtHours(minutes) : '–', 'Training time', uncountedTimeText(inPeriod) || p.label)}
       ${card(fmtNum(avg), 'Avg / week', p.label)}
       ${card(sum.volume == null ? '–' : fmtWeight(sum.volume), `Volume (${esc(unit())})`, sum.volume == null ? 'No weighted sets' : `${p.label}, no warm-ups`)}
       ${card(thisWeek, 'This week', 'Since Monday')}
@@ -362,7 +390,7 @@ function renderTypeSummary(idx, f) {
       if (entryType(e) !== f) continue;
       const x = exs.get(e.exerciseId) || { sessions: 0, sets: 0, volume: 0, weighted: false };
       x.sessions++;
-      completedSets(e).filter((s) => s.type !== 'warmup').forEach((s) => {
+      statSets(e).forEach((s) => {
         x.sets++; sets++;
         const w = num(s.weight) || 0, r = num(s.reps) || 0;
         if (w > 0 && r > 0) { x.volume += w * r; volume += w * r; x.weighted = true; weighted = true; }
@@ -384,7 +412,7 @@ function renderTypeSummary(idx, f) {
       ${statCard(inPeriod.length, `Workouts with ${esc(label)}`, p.label)}
       ${statCard(fmtNum(inPeriod.length / Math.max(1, range.days / 7)), 'Avg / week', p.label)}
       ${statCard(thisWeek, 'This week', 'Since Monday')}
-      ${statCard(sets, 'Sets', 'Warm-ups not counted')}
+      ${statCard(sets, 'Sets', 'Working + drop sets, no warm-ups')}
       ${weights ? statCard(weighted ? fmtWeight(volume) : '–', `Volume (${esc(unit())})`, weighted ? 'Weight × reps' : 'No weighted sets') : ''}
       ${statCard(exs.size, `Exercise${exs.size === 1 ? '' : 's'}`, p.label)}
     </div>
@@ -691,13 +719,13 @@ function renderBreakdown(idx, opts = { types: true, cats: true }) {
   const types = STAT_TYPES.map((t) => {
     const ws = inPeriod.filter((it) => it.primary === t.id);
     const known = ws.filter((it) => it.min != null);
-    return { t, count: ws.length, min: known.reduce((s, it) => s + it.min, 0), unknown: ws.length - known.length };
+    return { t, count: ws.length, min: known.reduce((s, it) => s + it.min, 0), unknown: ws.length - known.length, missing: uncountedTimeText(ws) };
   });
-  const typeRows = types.map(({ t, count, min, unknown }) => hbar(
+  const typeRows = types.map(({ t, count, min, unknown, missing }) => hbar(
     `<i class="sw" style="background:var(--heat-${t.id})"></i>${t.label}`,
     `${count} · ${Math.round((count / inPeriod.length) * 100)}%`,
     (count / inPeriod.length) * 100,
-    !count ? '' : count === unknown ? 'Time not recorded' : `${fmtHours(min)}${unknown ? ` (+${unknown} without duration)` : ''}`,
+    !count ? '' : count === unknown ? (missing.includes('over 4 h') ? `Time not counted (${missing})` : 'Time not recorded') : `${fmtHours(min)}${unknown ? ` (+${missing})` : ''}`,
     `var(--heat-${t.id})`
   )).join('');
 
@@ -709,13 +737,13 @@ function renderBreakdown(idx, opts = { types: true, cats: true }) {
   const dayNames = Array.from({ length: 7 }, (_, i) => sAddDays(startOfWeek(today), i).toLocaleDateString(undefined, { weekday: 'short' }));
 
   // Every exercise category (strength muscle groups, Cardio, Sports, Other): exercise
-  // sessions and completed sets, limited to the activity filter.
+  // sessions and sets (working + drop, no warm-ups: the Statistics rule), limited to the activity filter.
   const cats = new Map();
   inPeriod.forEach((it) => it.entries.forEach((e) => {
     if (f !== 'all' && entryType(e) !== f) return;
     const c = catOf(exById(e.exerciseId));
     const x = cats.get(c) || { sessions: 0, sets: 0 };
-    x.sessions++; x.sets += completedSets(e).length;
+    x.sessions++; x.sets += statSets(e).length;
     cats.set(c, x);
   }));
   const setTotal = [...cats.values()].reduce((a, x) => a + x.sets, 0);
@@ -745,7 +773,7 @@ function renderBreakdown(idx, opts = { types: true, cats: true }) {
       ${setTotal
         ? [...cats].sort((a, b) => b[1].sets - a[1].sets).map(([c, x]) => hbar(esc(c), `${x.sets} sets · ${Math.round((x.sets / setTotal) * 100)}%`, (x.sets / setTotal) * 100, `${x.sessions} exercise session${x.sessions === 1 ? '' : 's'}`)).join('')
         : '<div class="stats-empty">No sets in this period.</div>'}
-      <p class="stats-note" style="margin:4px 0 0">Completed sets, warm-ups included. Categories come from Settings → Manage exercises.</p>
+      <p class="stats-note" style="margin:4px 0 0">Working and drop sets; warm-ups are not counted anywhere in Statistics. Categories come from Settings → Manage exercises.</p>
     </div>` : ''}`;
 }
 

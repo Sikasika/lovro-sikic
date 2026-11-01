@@ -1321,3 +1321,11 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .prog-wrap { margin-top: 6px; }
 .prog .rec { min-height: 48px; }
 .prog .rec-none { box-shadow: inset 3px 0 0 var(--separator); background: var(--input); }
+
+/* Workout over 4 h (History detail, Finish) */
+.long-note { margin: 0 0 12px; }
+.long-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.long-actions .btn.small { flex: 1 1 auto; }
+.finish-long label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.finish-long input[type=time] { flex: 1; min-width: 0; max-width: 160px; }
+.finish-long input[type=checkbox] { width: 22px; height: 22px; flex: none; }

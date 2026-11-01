@@ -231,6 +231,21 @@ function workoutSetCount(w) {
   return w.entries.reduce((n, e) => n + completedSets(e).length, 0);
 }
 
+/** Completed warm-up sets in a workout. */
+const workoutWarmupCount = (w) => w.entries.reduce((n, e) => n + completedSets(e).filter((s) => setType(s) === 'warmup').length, 0);
+
+/**
+ * Sets that Statistics count: completed working and drop sets (warm-ups left out, as for
+ * volume). History and the workout itself show every logged set, with warm-ups named.
+ */
+const statSets = (entry) => completedSets(entry).filter((s) => setType(s) !== 'warmup');
+
+/** "6 sets", or "6 sets incl. 1 warm-up" — every logged set, warm-ups named. */
+function setCountText(w) {
+  const n = workoutSetCount(w), wu = workoutWarmupCount(w);
+  return `${n} set${n === 1 ? '' : 's'}${wu ? ` incl. ${wu} warm-up${wu === 1 ? '' : 's'}` : ''}`;
+}
+
 /** Most recent finished workout entry for an exercise. */
 function lastEntryFor(exerciseId) {
   for (const w of state.workouts) {
@@ -657,7 +672,7 @@ function renderHistory() {
     <div class="card">
       ${list.map((w) => {
         const vol = workoutVolume(w);
-        const meta = [workoutDurationText(w) === '–' ? 'No duration' : workoutDurationText(w), countWord(workoutExerciseCount(w), 'exercise'), countWord(workoutSetCount(w), 'set')];
+        const meta = [workoutDurationText(w) === '–' ? 'No duration' : `${workoutDurationText(w)}${workoutTiming(w).long ? ' (check end time)' : ''}`, countWord(workoutExerciseCount(w), 'exercise'), setCountText(w)];
         if (vol > 0) meta.push(`${fmtWeight(vol)} ${unit()}`);
         return `
         <button type="button" class="list-item hist-item" data-action="open-workout" data-id="${esc(w.id)}">
@@ -852,10 +867,11 @@ function renderWorkoutDetail(w) {
         <div class="bw-metrics hist-metrics">
           <div class="bw-metric"><div class="bw-metric-v">${workoutDurationText(w)}</div><div class="bw-metric-l">Duration</div></div>
           <div class="bw-metric"><div class="bw-metric-v">${workoutExerciseCount(w)}</div><div class="bw-metric-l">Exercises</div></div>
-          <div class="bw-metric"><div class="bw-metric-v">${done}</div><div class="bw-metric-l">Sets done</div>${notDone ? `<div class="bw-metric-h">${countWord(notDone, 'set')} not done</div>` : ''}</div>
+          <div class="bw-metric"><div class="bw-metric-v">${done}</div><div class="bw-metric-l">Sets done</div>${workoutWarmupCount(w) ? `<div class="bw-metric-h">Incl. ${countWord(workoutWarmupCount(w), 'warm-up')}</div>` : ''}${notDone ? `<div class="bw-metric-h">${countWord(notDone, 'set')} not done</div>` : ''}</div>
           ${volume > 0 ? `<div class="bw-metric"><div class="bw-metric-v">${fmtWeight(volume)}</div><div class="bw-metric-l">Volume (${esc(unit())})</div><div class="bw-metric-h">Warm-ups excluded</div></div>` : ''}
         </div>
       </div>
+      ${longWorkoutNote(w)}
       ${w.planned ? planContextLine(w) + plannedVsActualHtml(w) : ''}
       ${w.entries.map((e, i) => {
         const ck = cardioKindOf(e.exerciseId) || ((e.sets || []).some(hasCardioValues) ? 'other' : null);
@@ -883,6 +899,38 @@ function renderWorkoutDetail(w) {
       <div class="btn-row"><button type="button" class="btn danger" data-action="delete-workout" data-id="${esc(w.id)}">Delete Workout</button></div>
     </div>
   `;
+}
+
+/**
+ * Notice on a saved workout that lasted over 4 hours (see calc.js): not counted in training
+ * time until the end time is corrected or the user confirms it really lasted that long.
+ */
+function longWorkoutNote(w) {
+  const t = workoutTiming(w);
+  if (t.raw == null || t.raw <= LONG_WORKOUT_MIN) return '';
+  const start = new Date(w.start), end = new Date(w.end);
+  const hm = (d) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const span = `${hm(start)} → ${hm(end)}${sDay(end) > sDay(start) ? (sDaysBetween(start, end) === 1 ? ' the next day' : ` ${sDaysBetween(start, end)} days later`) : ''}`;
+  if (!t.long) {
+    return `<div class="finish-note long-note"><span aria-hidden="true">i</span><div>Long workout (${fmtHoursMin(t.raw)}, ${esc(span)}), confirmed: counted in training time.
+      <div class="long-actions"><button type="button" class="link small" data-action="unconfirm-long" data-id="${esc(w.id)}">Don't count this time</button></div></div></div>`;
+  }
+  return `<div class="finish-note warn long-note"><span aria-hidden="true">!</span><div><b>${fmtHoursMin(t.raw)} is unusually long</b> (${esc(span)}). It may have been left running, so its time isn't counted in training time. Sets and volume still count.
+    <div class="long-actions">
+      <button type="button" class="btn secondary small" data-action="edit-workout" data-id="${esc(w.id)}">Correct End Time</button>
+      <button type="button" class="btn secondary small" data-action="confirm-long" data-id="${esc(w.id)}">It Lasted This Long</button>
+    </div></div></div>`;
+}
+
+/** Mark (or unmark) a long saved workout's duration as correct. */
+function setDurationConfirmed(id, yes) {
+  const w = state.workouts.find((x) => x.id === id);
+  if (!w) return;
+  if (yes) w.durationConfirmed = true; else delete w.durationConfirmed;
+  save();
+  render();
+  openSheet(renderWorkoutDetail(w));
+  toast(yes ? 'Counted in training time' : 'Not counted in training time');
 }
 
 /* ----- Editing a saved workout ----- */
@@ -943,7 +991,8 @@ function workoutDraftDurationText() {
   if (!t) return 'Enter a date and start time';
   if (!t.end) return 'No end time · duration unknown';
   const nextDay = sDay(t.end) > sDay(t.start);
-  return `Duration ${fmtDuration(t.end - t.start)}${nextDay ? ' · ends the next day' : ''}`;
+  const long = (t.end - t.start) / 60000 > LONG_WORKOUT_MIN;
+  return `Duration ${fmtDuration(t.end - t.start)}${nextDay ? ' · ends the next day' : ''}${long ? ' · over 4 h: check the end time' : ''}`;
 }
 
 function openWorkoutEditor() {
@@ -1021,6 +1070,8 @@ function saveWorkoutEdit() {
     entries
   };
   if (times.end) updated.end = times.end.toISOString(); else delete updated.end;
+  // A confirmed long duration applies to those exact times only.
+  if (updated.start !== original.start || updated.end !== original.end) delete updated.durationConfirmed;
   state.workouts[i] = updated;
   state.workouts.sort((a, b) => new Date(b.start) - new Date(a.start));
   ui.wdraft = null;
@@ -1090,7 +1141,7 @@ function renderProgress() {
         </tbody>
       </table>
     </div>
-    <p class="stats-note">Weeks start on Monday. – means nothing was recorded.${anyUntimed ? ' * Some workouts have no end time and are not included in training time.' : ''} Volume leaves out warm-up sets.</p>
+    <p class="stats-note">Weeks start on Monday. – means nothing was recorded.${anyUntimed ? ` * Some workouts ${cur.long || prev.long ? 'have no end time or lasted over 4 h (check the end time in History), and are' : 'have no end time and are'} not included in training time.` : ''} Volume leaves out warm-up sets.</p>
 
     <div class="section-title">Recent records · last 30 days</div>
     ${recent.length ? `<div class="card">
@@ -1566,6 +1617,8 @@ document.addEventListener('click', (ev) => {
     case 'save-active-template': saveAsTemplate(state.active); break;
     case 'edit-workout': beginWorkoutEdit(state.workouts.find((w) => w.id === id)); openWorkoutEditor(); break;
     case 'save-wedit': saveWorkoutEdit(); break;
+    case 'confirm-long': setDurationConfirmed(id, true); break;
+    case 'unconfirm-long': setDurationConfirmed(id, false); break;
     case 'cancel-wedit': cancelWorkoutEdit(); break;
     case 'wedit-add-exercise': openExercisePicker('wedit'); break;
     case 'back-to-wedit': openWorkoutEditor(); break;

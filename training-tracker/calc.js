@@ -32,6 +32,11 @@
    - Volume: weight × reps over completed, non-warm-up sets.
    - Training time: workout start → end; workouts without an end time
      are left out (and counted as "without duration"), never guessed.
+   - Unusually long workout: start → end over 4 hours (LONG_WORKOUT_MIN),
+     usually a workout left running overnight. Its time is left out of
+     training time (and shown as "over 4 h, not counted") until the user
+     corrects the end time or confirms it (workout.durationConfirmed).
+     The workout itself, its sets and volume always count.
    - Cardio time: time logged on cardio sets only.
    - A personal record needs an earlier session to beat: the first
      session of an exercise sets the baseline, not a record.
@@ -231,9 +236,37 @@ const sDaysBetween = (a, b) => Math.round((sDay(b) - sDay(a)) / 864e5);
 
 /* ---------- Completed workouts ---------- */
 
+const LONG_WORKOUT_MIN = 4 * 60;
+
+/**
+ * Duration of a saved workout in minutes: raw (start → end, null without a valid end),
+ * long (over 4 h and not confirmed) and min (what statistics count: null when unknown or long).
+ */
+function workoutTiming(w) {
+  const start = new Date(w?.start), end = new Date(w?.end);
+  if (isNaN(start) || isNaN(end) || end < start) return { raw: null, long: false, min: null };
+  const raw = (end - start) / 60000;
+  const long = raw > LONG_WORKOUT_MIN && w.durationConfirmed !== true;
+  return { raw, long, min: long ? null : raw };
+}
+
+/** Hours and minutes for long spans: "14 h 30 min", "5 h". */
+function fmtHoursMin(min) {
+  const t = Math.round(min), h = Math.floor(t / 60), m = t % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
+/** "1 without duration, 1 over 4 h not counted" for workouts whose time isn't counted, or ''. */
+function uncountedTimeText(items) {
+  const long = items.filter((it) => it.long).length;
+  const noEnd = items.filter((it) => it.min == null && !it.long).length;
+  return [noEnd ? `${noEnd} without duration` : '', long ? `${long} over 4 h not counted` : ''].filter(Boolean).join(', ');
+}
+
 /**
  * Finished workouts that count for statistics, oldest first.
- * Each item: { w, start, day, key, entries (with valid sets), min (duration in minutes or null) }.
+ * Each item: { w, start, day, key, entries (with valid sets), min (counted duration in minutes or null),
+ * rawMin (start → end, or null), long (over 4 h, not confirmed: time not counted) }.
  */
 function completedWorkouts(now = new Date()) {
   const today = sDay(now);
@@ -243,10 +276,9 @@ function completedWorkouts(now = new Date()) {
     const start = new Date(w?.start);
     const entries = (w?.entries || []).filter((e) => completedSets(e).length);
     if (isNaN(start) || !entries.length || sDay(start) > today) { skipped++; continue; }
-    const end = new Date(w.end);
-    const min = !isNaN(end) && end >= start ? (end - start) / 60000 : null;
+    const t = workoutTiming(w);
     const day = sDay(start);
-    items.push({ w, start, day, key: sKey(day), entries, min });
+    items.push({ w, start, day, key: sKey(day), entries, min: t.min, rawMin: t.raw, long: t.long });
   }
   items.sort((a, b) => a.start - b.start);
   return { items, skipped, today };
@@ -360,6 +392,7 @@ function summarizeWorkouts(items) {
     count: items.length,
     minutes: timed.length ? timed.reduce((a, it) => a + it.min, 0) : null,
     untimed: items.length - timed.length,
+    long: items.filter((it) => it.long).length,
     volume: weighted ? volume : null,
     cardioSec: cardioSec > 0 ? cardioSec : null
   };
