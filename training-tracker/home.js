@@ -97,7 +97,7 @@ function homePlannedCard(x, more = [], strengthCount = 0) {
   // one strength session today, the button asks which one first.
   const startBtn = strengthCount > 1
     ? '<button type="button" class="hero-btn" data-action="home-choose-session">Start Today\'s Workout</button>'
-    : `<button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">${sessionSport(s) === 'strength' ? 'Start Today\'s Workout' : `Start ${esc(s.title)}`}</button>`;
+    : `<button type="button" class="hero-btn" data-action="review" data-kind="planned" data-id="${esc(`${plan.id}|${s.key}`)}">${esc(planStartLabel(s))}</button>`;
   const pr = planProgress(plan);
   const n = s.targets?.exercises?.length || 0;
   return `

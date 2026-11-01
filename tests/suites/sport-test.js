@@ -314,6 +314,7 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
   const swimPlan = s.plans.find((p) => p.kind === 'swim');
   const SID = swimPlan.id;
   check('F swim plan saved with summary; Swimming added to the library; sessions linked to it', `${swimPlan.source.defId}|${swimPlan.summary.level}|${s.exercises.filter((e) => e.name === 'Swimming').length}|${swimPlan.weeks.every((w) => w.sessions.every((x) => x.targets.swim.exerciseId === s.exercises.find((e) => e.name === 'Swimming').id))}`, 'swim|intermediate|1|true');
+  if (!(await page.$('[data-action=ride-setup]'))) { await page.click('[data-action=plan-catalog]'); await page.waitForTimeout(200); }
   check('F one sport plan at a time (running/cycling blocked)', `${await page.isDisabled('[data-action=ride-setup]')}|${await page.isDisabled('[data-action=run-setup][data-id="5k"]')}|${await ev(() => startSportPlan('bike', { goal: 'fitness', weeks: 8, weeklyMin: 120, ridesPerWeek: 2, longestMin: 70, days: [1, 3], experience: 'some' }, todayKey()).error)}`, (v) => v.startsWith('true|true|') && v.includes('already running'));
   check('F Plans card: swim tags and week distance', (await view()).replace(/\s+/g, ' '), (v) => v.includes('SWIM') || v.includes('Swim'));
   const snap = JSON.stringify(swimPlan.weeks);
@@ -364,7 +365,7 @@ process.on('unhandledRejection', (e) => { console.log(results.join('\n')); conso
   const ridePlan = s.plans.find((p) => p.kind === 'bike');
   const RID = ridePlan.id;
   check('G cycling plan saved alongside the strength program (answers in minutes and km)', `${s.plans.length}|${ridePlan.answers.weeklyMin}|${ridePlan.answers.longestMin}|${ridePlan.answers.targetKm}`, '2|150|75|80');
-  check('G same-day warning on Plans', (await view()).replace(/\s+/g, ' '), (v) => v.includes('Sessions from two plans on the same day'));
+  check('G same-day warning on Plans', (await view()).replace(/\s+/g, ' '), (v) => v.includes('Same day as your other plan') && v.includes(' · also '));
   check('G no session has invented power, heart rate or distance', ridePlan.weeks.every((w) => w.sessions.every((x) => !x.targets.ride.power && !x.targets.ride.hr && !x.targets.ride.kmRange)), true);
   await page.click(`.plan-sess[data-id="${RID}|w1-1"]`); await wait();
   t = await sheet();

@@ -1286,3 +1286,34 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .brk-row b { text-align: right; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .brk-check { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 700; color: transparent; border: 2px solid var(--check-line); }
 .brk-check.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+/* ---------- Plans tab: cards, next workout, rows, full schedule ---------- */
+.plan-name .sport-tag { vertical-align: 3px; margin-right: 2px; }
+.plan-more { flex: none; width: 40px; height: 34px; border: 0; border-radius: 10px; background: var(--input); color: var(--text); font-size: 15px; font-weight: 800; letter-spacing: 1px; }
+.plan-bar { display: flex; }
+.plan-bar span { border-radius: 0; }
+.plan-bar .pb-done { background: var(--success); }
+.plan-bar .pb-missed { background: var(--danger); opacity: 0.75; }
+.plan-bar .pb-skipped { background: var(--muted); opacity: 0.45; }
+.plan-counts .pk { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+.pk-done { background: var(--success); } .pk-missed { background: var(--danger); opacity: 0.75; } .pk-skipped { background: var(--muted); opacity: 0.45; }
+.plan-counts .pc-missed { color: var(--danger); }
+.plan-next { margin: 12px 0 0; padding: 12px; border-radius: var(--radius); background: var(--accent-soft); }
+.plan-next.ps-next-upcoming { background: var(--input); }
+.plan-next-none { font-size: 15px; color: var(--muted); background: var(--input); }
+.plan-next-head { font-size: 13px; font-weight: 700; color: var(--muted); }
+.plan-next-title { font-size: 18px; font-weight: 800; margin-top: 2px; overflow-wrap: anywhere; }
+.plan-next-sub { font-size: 14px; color: var(--muted); margin-top: 1px; }
+.plan-next-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.plan-next-actions .link.small { padding: 4px 0; }
+.plan-clash { margin-top: 10px; padding: 8px 10px; border-radius: 10px; border-left: 3px solid var(--danger); background: var(--input); font-size: 14px; }
+.plan-sess .plan-sess-title { overflow-wrap: anywhere; }
+.psr-skipped .plan-sess-title, .psr-cancelled .plan-sess-title { color: var(--muted); font-weight: 500; }
+.plan-all { display: block; margin: 12px 0 0 auto; text-align: right; padding: 4px 0 0; }
+.plan-full { font-size: 15px; color: var(--muted); }
+.plan-full .link.small { display: block; padding: 6px 0 0; }
+.sched-week { margin: 18px 4px 8px; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sched-past { margin-top: 14px; background: var(--card); border-radius: var(--radius); color: var(--text); }
+.sched-chev { transition: transform 0.15s; }
+.sched-chev.open { transform: rotate(90deg); }
+.plan-week-title { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--text); }

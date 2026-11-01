@@ -121,7 +121,10 @@ const RUN_DEF = `({ id: 'test-run', version: 1, kind: 'run', name: 'Test run pla
   const PID = plan.id;
   check('B plan saved', `${s.plans.length}|${plan.kind}|${plan.source.defId}|${plan.source.defVersion}|${plan.startDate}|${plan.endDate}|${plan.weeks.length}|${JSON.stringify(plan.answers)}`, '1|strength|full-body-3|1|2026-11-09|2026-12-18|6|{"days":[0,2,4],"weeks":6,"deload":0}');
   check('B every planned exercise points at the library; Lunge added once', `${plan.weeks.every((w) => w.sessions.every((x) => x.targets.exercises.every((e) => s.exercises.some((ex) => ex.id === e.exerciseId))))}|${s.exercises.filter((e) => e.name === 'Lunge').length}`, 'true|1');
-  check('B Plans tab: program card, week 1, today first', `${(await view()).includes('Week 1 of 6')}|${await page.$$eval('.plan-card .plan-sess', (r) => r.map((x) => x.innerText.replace(/\s+/g, ' ')).join(' / '))}`, (v) => v.replace(/STRENGTH /gi, '').startsWith('true|Full Body A Mon, 9 Nov Today / Full Body B Wed, 11 Nov Upcoming / Full Body A Fri, 13 Nov Upcoming') && (v.match(/STRENGTH /gi) || []).length === 3);
+  check('B Plans tab: program card, week 1, today first', `${(await view()).includes('Week 1 of 6')}|${await page.$$eval('.plan-card .plan-sess', (r) => r.map((x) => x.innerText.replace(/\s+/g, ' ')).join(' / '))}`, (v) => v === 'true|Full Body A Mon, 9 Nov Today / Full Body B Wed, 11 Nov / Full Body A Fri, 13 Nov');
+  check('B the plan type is shown once, in the card header', await page.$$eval('.plan-card .sport-tag', (t) => t.map((x) => x.textContent).join(',')), 'Strength');
+  check('B strength library hidden while a program runs', `${!!(await page.$('[data-action=plan-setup]'))}|${!!(await page.$('[data-action=plan-catalog]'))}`, 'false|true');
+  await page.click('[data-action=plan-catalog]'); await page.waitForTimeout(200);
   check('B one strength program at a time: library disabled', `${await page.isDisabled('[data-action=plan-setup][data-id=upper-lower-4]')}|${(await view()).includes('One strength program at a time')}`, 'true|true');
   check('B second program refused by the rules too', await ev(() => startProgram(findProgram('upper-lower-4'), { days: [0, 1, 3, 4], weeks: 8, deload: 4 }, '2026-11-09').error), (v) => v.includes('already running'));
   check('B Plans fits the screen', await noOverflow(), true);
@@ -240,9 +243,10 @@ const RUN_DEF = `({ id: 'test-run', version: 1, kind: 'run', name: 'Test run pla
   /* G. Statuses, skip, move, mark done, conflicts */
   await setDay('2026-11-12T09:00:00+01:00'); // Thursday: Wed's session was missed
   await go(page, 'plans'); await wait();
-  const rows = async () => (await page.$$eval('.plan-card .plan-sess', (r) => r.map((x) => x.querySelector('.pstatus').textContent).join(',')));
+  // Rows show a status marker except for upcoming sessions (the date says it).
+  const rows = async () => (await page.$$eval('.plan-card .plan-sess', (r) => r.map((x) => x.querySelector('.pstatus')?.textContent || 'Upcoming').join(',')));
   check('G Thursday: Mon done, Wed missed, Fri upcoming', await rows(), 'Done,Missed,Upcoming');
-  check('G counts', (await page.innerText('.plan-counts')).replace(/\s+/g, ' '), '1 done 1 missed 0 skipped 16 to go');
+  check('G counts: completed apart from missed (skipped only when there are any)', (await page.innerText('.plan-card .plan-counts')).replace(/\s+/g, ' ').trim(), '1 of 18 completed 1 missed');
   await page.click(`.plan-sess[data-id="${PID}|w1-2"]`); await wait();
   t = await sheet();
   check('G missed session: start, skip, mark done, move offered', ['Start Workout', 'Skip Session', 'Mark as Done', 'move to another day'].map((x) => t.toLowerCase().includes(x.toLowerCase())).join(','), 'true,true,true,true');
@@ -264,7 +268,7 @@ const RUN_DEF = `({ id: 'test-run', version: 1, kind: 'run', name: 'Test run pla
   check('G no same-day sessions yet: no warning (the strength session moved off Wed; past days ignored)', `${await ev(() => planConflicts(state).length)}|${(await view()).includes('Sessions from two plans on the same day')}`, '0|false');
   await ev(() => { moveSession(state, 'run1', 'r3', '2026-11-13'); save(); render(); });
   await go(page, 'plans'); await wait();
-  check('G conflict after a move', `${await ev(() => planConflicts(state).map((c) => c.date).join(','))}|${(await view()).includes('Sessions from two plans on the same day')}|${(await view()).includes('Long run (Test run plan)')}`, '2026-11-13|true|true');
+  check('G conflict after a move', `${await ev(() => planConflicts(state).map((c) => c.date).join(','))}|${(await view()).includes('Same day as your other plan')}|${/also Long run/.test(await view())}`, '2026-11-13|true|true');
 
   /* H. Backup and restore */
   await go(page, 'settings'); await wait();

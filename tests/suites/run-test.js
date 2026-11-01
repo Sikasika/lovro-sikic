@@ -259,6 +259,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
     'run|run-5k|5K plan · race Sun, 17 Jan|15|1650|unlikely|10|2027-01-17');
   check('E Running added back to the library and linked from every session', `${s.exercises.filter((e) => e.name === 'Running').length}|${plan.weeks.every((w) => w.sessions.every((x) => x.targets.run.exerciseId === s.exercises.find((e) => e.name === 'Running').id))}`, '1|true');
   check('E Plans: running card with week distance', (await view()).replace(/\s+/g, ' '), (v) => v.includes('5K plan · race Sun, 17 Jan') && /week 1 · build · 0 km of 15\.\d km/i.test(v));
+  if (!(await page.$('[data-action=run-setup][data-id="10k"]'))) { await page.click('[data-action=plan-catalog]'); await page.waitForTimeout(200); }
   check('E one running plan at a time', `${await page.isDisabled('[data-action=run-setup][data-id="10k"]')}|${await ev(() => startRunPlan({ distance: '10k', weeks: 8, days: [1, 3, 6], experience: 'some', weeklyKm: 10, runsPerWeek: 3, longestKm: 5 }, todayKey()).error)}`, (v) => v.startsWith('true|') && v.includes('already running'));
   // Snapshot: a later engine change does not change the running plan
   const snap = JSON.stringify(plan.weeks);
@@ -305,7 +306,7 @@ const check = (name, got, want) => { const ok = typeof want === 'function' ? wan
   check('G strength program allowed alongside, conflicts reported', `${r.ok}|${r.conflicts.length > 0}`, 'true|true');
   await ev(() => save());
   await go(page, 'plans'); await wait();
-  check('G Plans warns about same-day sessions', (await view()).replace(/\s+/g, ' '), (v) => v.includes('Sessions from two plans on the same day') && v.includes('Full Body') && v.includes('Easy run'));
+  check('G Plans warns about same-day sessions', (await view()).replace(/\s+/g, ' '), (v) => v.includes('Same day as your other plan') && /also Full Body/.test(v) && /also Easy run/.test(v));
   await page.clock.setFixedTime(new Date('2026-11-12T09:00:00+01:00')); // Thursday: a run and a strength session
   await page.reload(); await wait(300);
   check('G Thursday: both planned sessions open', `${(await ev(() => todaysPlannedSessions().map((x) => x.session.title).sort().join('+')))}`, 'Easy run+Full Body B');

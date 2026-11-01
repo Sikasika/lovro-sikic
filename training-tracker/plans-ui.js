@@ -37,18 +37,15 @@ function renderPlans() {
   const today = todayKey();
   const running = runningPlans(state, today);
   const past = plansOf(state).filter((p) => !running.includes(p));
-  const conflicts = planConflicts(state, today);
   const hasStrength = running.some((p) => planGroup(p.kind) === 'strength');
   const hasSport = running.some((p) => planGroup(p.kind) === 'sport');
   return `
-    ${conflicts.length ? `<div class="card card-pad plan-warn" role="note" style="margin-top:12px">
-      <b>Sessions from two plans on the same day</b>
-      ${conflicts.slice(0, 4).map((c) => `<div>${esc(sessionDayText(c.date))}: ${esc(c.sessions.map((x) => `${x.title} (${x.planName})`).join(' + '))}</div>`).join('')}
-      ${conflicts.length > 4 ? `<div>…and ${conflicts.length - 4} more days</div>` : ''}
-      <div class="sub">Move one of them from its session screen if that is too much for one day.</div>
-    </div>` : ''}
-    ${running.map((p) => planCard(p, today)).join('')}
-    <div class="section-title">${hasStrength ? 'Strength programs' : 'Start a strength program'}</div>
+    ${running.length ? `<div class="section-title">Your plans</div>${running.map((p) => planCard(p, today)).join('')}` : ''}
+    ${hasStrength && hasSport && !ui.planCatalog ? `
+    <div class="section-title">Start a plan</div>
+    <div class="card card-pad plan-full">A strength program and a sport plan are running. Stop one to start another.
+      <button type="button" class="link small" data-action="plan-catalog">Browse plans ›</button></div>` : `
+    ${hasStrength && !ui.planCatalog ? '' : `<div class="section-title">${hasStrength ? 'Strength programs' : 'Start a strength program'}</div>
     ${hasStrength ? '<p class="tpl-hint" style="margin-top:0">One strength program at a time. Stop the current one to start another.</p>' : ''}
     <div class="card">
       ${STRENGTH_PROGRAMS.map((p) => `
@@ -59,7 +56,8 @@ function renderPlans() {
           <span class="chev" aria-hidden="true">›</span>
         </button>`).join('')}
     </div>
-    <div class="section-title">${hasSport ? 'Running, swimming and cycling plans' : 'Start a running, swimming or cycling plan'}</div>
+    `}
+    ${hasSport && !ui.planCatalog ? '' : `<div class="section-title">${hasSport ? 'Running, swimming and cycling plans' : 'Start a running, swimming or cycling plan'}</div>
     ${hasSport ? '<p class="tpl-hint" style="margin-top:0">One running, swimming or cycling plan at a time (alongside one strength program). Stop the current one to start another.</p>' : ''}
     <div class="card">
       ${Object.entries(RUN_GOALS).map(([id, g]) => `
@@ -82,7 +80,8 @@ function renderPlans() {
         <span class="chev" aria-hidden="true">›</span>
       </button>
     </div>
-    <p class="tpl-hint">Triathlon plans are coming in a later update.</p>
+    <p class="tpl-hint">Triathlon plans are coming in a later update.</p>`}
+    ${(hasStrength || hasSport) ? `<button type="button" class="link small plan-browse" data-action="plan-catalog">${ui.planCatalog ? 'Hide plans you can\'t start now' : 'Browse all plans ›'}</button>` : ''}`}
     ${past.length ? `<div class="section-title">Past plans</div>
       <div class="card">${past.map((p) => {
         const pr = planProgress(p, state, today);
@@ -102,6 +101,46 @@ function planStatusText(plan, pr, today = todayKey()) {
   return `Week ${pr.week} of ${pr.weeks}`;
 }
 
+/* ---------- Plan cards ----------
+   One card per running plan (in the existing order): type and name,
+   week and end (or event), a progress bar where completed, missed and skipped are separate,
+   the next workout (in progress → today → next upcoming; a missed session is never "next"),
+   warnings (missed run, same-day clashes), this week's sessions and the full schedule. */
+
+const PLAN_KIND_TAG = { strength: 'strength', run: 'run', swim: 'swim', bike: 'ride' };
+const planTypeTag = (plan) => { const k = PLAN_KIND_TAG[plan.kind] || 'strength'; return `<span class="sport-tag sport-${k}">${SPORT_LABEL[k]}</span>`; };
+
+/** The workout to show as next: in progress, else today's, else the next upcoming one. Never a missed one. */
+function planNextSession(list) {
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  return list.find((x) => x.status === 'in-progress')
+    || list.filter((x) => x.status === 'today').sort(byDate)[0]
+    || list.filter((x) => x.status === 'upcoming').sort(byDate)[0] || null;
+}
+
+/** Start label shared with the Today tab: strength today → "Start Today's Workout", a sport session → "Start <title>". */
+const planStartLabel = (s) => (sessionSport(s) === 'strength' ? 'Start Today\'s Workout' : `Start ${s.title}`);
+
+/** Same-day sessions of other plans, by "planId|key" of this plan's sessions. */
+function planClashes(plan, today) {
+  const out = new Map();
+  for (const c of planConflicts(state, today)) {
+    const mine = c.sessions.filter((x) => x.planId === plan.id), others = c.sessions.filter((x) => x.planId !== plan.id);
+    if (!mine.length || !others.length) continue;
+    mine.forEach((x) => out.set(x.key, others));
+  }
+  return out;
+}
+
+function planProgressHtml(pr) {
+  const pct = (n) => (pr.total ? (n / pr.total) * 100 : 0);
+  return `
+      <div class="plan-bar" role="img" aria-label="${pr.completed} of ${pr.total} sessions completed${pr.missed ? `, ${pr.missed} missed` : ''}${pr.skipped ? `, ${pr.skipped} skipped` : ''}">
+        <span class="pb-done" style="width:${pct(pr.completed).toFixed(2)}%"></span><span class="pb-missed" style="width:${pct(pr.missed).toFixed(2)}%"></span><span class="pb-skipped" style="width:${pct(pr.skipped).toFixed(2)}%"></span>
+      </div>
+      <div class="plan-counts"><span><i class="pk pk-done"></i><b>${pr.completed} of ${pr.total}</b> completed</span>${pr.missed ? `<span class="pc-missed"><i class="pk pk-missed"></i>${pr.missed} missed</span>` : ''}${pr.skipped ? `<span><i class="pk pk-skipped"></i>${pr.skipped} skipped</span>` : ''}</div>`;
+}
+
 function planCard(plan, today) {
   const pr = planProgress(plan, state, today);
   const list = sessionStatuses(plan, state, today);
@@ -109,33 +148,81 @@ function planCard(plan, today) {
   const week = plan.weeks[wkNo - 1];
   const keys = new Set(week.sessions.map((s) => s.key));
   const thisWeek = list.filter((s) => keys.has(s.key)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const pct = pr.total ? Math.round((pr.completed / pr.total) * 100) : 0;
+  const clashes = planClashes(plan, today);
+  const next = planNextSession(list);
+  const ev = isEventPlan(plan) ? planEventDate(plan) : null;
+  const evDays = ev ? sDaysBetween(sFromKey(today), sFromKey(ev)) : null;
+  const sub = [planStatusText(plan, pr, today), planPhase(plan, today) === 'active' ? `ends ${sessionDayText(plan.endDate)}` : '',
+    ev ? `Event ${sessionDayText(ev)}${evDays > 1 ? ` · in ${evDays} days` : evDays === 1 ? ' · tomorrow' : evDays === 0 ? ' · today' : ''}` : ''].filter(Boolean).join(' · ');
+  const clashDays = [...new Set(thisWeek.concat(list.filter((s) => s.date >= today)).filter((s) => clashes.has(s.key)).map((s) => s.date))].sort();
   return `
     <section class="card card-pad plan-card" style="margin-top:12px" aria-label="${esc(plan.name)}">
       <div class="plan-card-top">
-        <div class="grow"><div class="plan-name">${esc(plan.name)}</div><div class="sub">${esc(planStatusText(plan, pr, today))}${week.deload ? ' · Lighter week' : ''}</div></div>
-        <button type="button" class="link small" data-action="plan-open" data-id="${esc(plan.id)}">Schedule</button>
+        <div class="grow"><div class="plan-name">${planTypeTag(plan)} ${esc(plan.name)}</div><div class="sub">${esc(sub)}${week.deload ? ' · Lighter week' : ''}</div></div>
+        <button type="button" class="plan-more" data-action="plan-menu" data-id="${esc(plan.id)}" aria-label="More for ${esc(plan.name)}">•••</button>
       </div>
-      <div class="plan-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
-      <div class="plan-counts">
-        <span><b>${pr.completed}</b> done</span><span><b>${pr.missed}</b> missed</span><span><b>${pr.skipped}</b> skipped</span><span><b>${pr.total - pr.due}</b> to go</span>
-      </div>
-      ${breakLinksHtml(plan, today)}
+      ${planProgressHtml(pr)}
       ${planUpdateAvailable(plan) ? '<div class="sub" style="margin-top:6px">A newer version of this program exists. Your schedule stays as it was when you started.</div>' : ''}
-      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `Week ${wkNo}`}${plan.kind !== 'strength' ? ` · ${esc(week.label || '')} · ${esc(weekDoneText(plan, week, thisWeek))}` : ''}</div>
-      <div class="plan-sessions">${thisWeek.map((s) => sessionRow(plan, s)).join('')}</div>
+      ${next ? planNextHtml(plan, next) : `<div class="plan-next plan-next-none">${planPhase(plan, today) === 'finished' ? 'All sessions are behind you.' : 'No more sessions are scheduled.'}</div>`}
+      ${breakLinksHtml(plan, today)}
+      ${clashDays.length ? `<div class="plan-clash" role="note">Same day as your other plan: ${esc(clashDays.slice(0, 3).map((d) => sessionDayText(d)).join(', '))}${clashDays.length > 3 ? ` and ${clashDays.length - 3} more` : ''}. Move one if that's too much for one day.</div>` : ''}
+      <div class="plan-week-title">${planPhase(plan, today) === 'upcoming' ? 'First week' : `This week · Week ${wkNo}`}${plan.kind !== 'strength' ? ` · ${esc(week.label || '')} · ${esc(weekDoneText(plan, week, thisWeek))}` : ''}</div>
+      <div class="plan-sessions">${thisWeek.map((s) => sessionRow(plan, s, clashes)).join('')}</div>
+      <button type="button" class="link small plan-all" data-action="plan-open" data-id="${esc(plan.id)}">Full schedule ›</button>
     </section>`;
 }
 
-function sessionRow(plan, s) {
-  return `<button type="button" class="list-item plan-sess${s.status === 'today' ? ' is-today' : ''}" data-action="plan-session" data-id="${esc(planIdAttr(plan, s))}">
-    <span class="grow"><span class="plan-sess-title truncate">${sportTag(s)} ${esc(s.title)}</span>
-      <span class="plan-day">${esc(sessionDayText(s.date))}${sportLengthText(s.targets) ? ` · ${esc(sportLengthText(s.targets))}` : ''}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</span></span>
-    ${statusChip(s)}
+/** The next-workout block: Start (through the review) for today, Continue when in progress, View for later days. */
+function planNextHtml(plan, s) {
+  const id = planIdAttr(plan, s);
+  const otherActive = state.active && !(state.active.plan?.planId === plan.id && state.active.plan?.sessionKey === s.key);
+  const head = s.status === 'in-progress' ? 'In progress' : s.status === 'today' ? `Today · ${sessionDayText(s.date)}` : `Next · ${sessionDayText(s.date)}`;
+  const detail = sportLengthText(s.targets) || `${plural((s.targets?.exercises || []).length, 'exercise')} · ${plural((s.targets?.exercises || []).reduce((a, x) => a + x.sets, 0), 'set')}`;
+  let btn;
+  if (s.status === 'in-progress') btn = '<button type="button" class="btn small" data-action="continue-workout">Continue Workout</button>';
+  else if (s.status === 'today') btn = otherActive ? '<span class="tpl-hint" style="margin:0">Finish the workout in progress first.</span>' : `<button type="button" class="btn small" data-action="review" data-kind="planned" data-id="${esc(id)}">${esc(planStartLabel(s))}</button>`;
+  else btn = `<button type="button" class="btn secondary small" data-action="plan-session" data-id="${esc(id)}">View Session</button>`;
+  return `
+      <div class="plan-next ps-next-${s.status}">
+        <div class="plan-next-head">${esc(head)}${s.moved ? ` · moved from ${esc(sessionDayText(s.originalDate))}` : ''}</div>
+        <div class="plan-next-title">${esc(s.title)}</div>
+        <div class="plan-next-sub">${esc(detail)}${s.targets?.deload ? ' · Lighter week' : ''}</div>
+        <div class="plan-next-actions">${btn}${s.status === 'in-progress' ? '' : `<button type="button" class="link small" data-action="plan-session" data-id="${esc(id)}">${s.status === 'today' ? 'Skip or move' : 'Details'}</button>`}</div>
+      </div>`;
+}
+
+/** One session row (card and full schedule): no repeated type tag; a marker only when it means something. */
+function sessionRow(plan, s, clashes = new Map()) {
+  const other = clashes.get(s.key);
+  const line = [sessionDayText(s.date), sportLengthText(s.targets), s.moved ? `moved from ${sessionDayText(s.originalDate)}` : '', other ? `also ${other.map((x) => x.title).join(', ')}` : ''].filter(Boolean).join(' · ');
+  return `<button type="button" class="list-item plan-sess psr-${s.status}${s.status === 'today' ? ' is-today' : ''}" data-action="plan-session" data-id="${esc(planIdAttr(plan, s))}">
+    <span class="grow"><span class="plan-sess-title">${esc(s.title)}</span>
+      <span class="plan-day">${esc(line)}</span></span>
+    ${s.status === 'upcoming' ? '' : statusChip(s)}
   </button>`;
 }
 
-/* ---------- Full schedule (sheet) ---------- */
+/** "•••" on a plan card: full schedule, picking up after a break, stopping. */
+function openPlanMenu(planId) {
+  const plan = findPlan(state, planId);
+  if (!plan) { closeSheet(); render(); return; }
+  const phase = planPhase(plan, todayKey());
+  const brk = breakOptions(state, planId);
+  openSheet(`
+    <div class="sheet-head">
+      <button type="button" class="link" data-action="close-sheet">Done</button>
+      <h2 class="truncate" style="max-width:60%">${esc(plan.name)}</h2>
+      <span style="width:52px"></span>
+    </div>
+    <div class="sheet-body">
+      <div class="card">
+        <button type="button" class="list-item" data-action="plan-open" data-id="${esc(planId)}"><span class="grow">Full schedule</span><span class="chev">›</span></button>
+        ${brk ? `<button type="button" class="list-item" data-action="break-open" data-id="${esc(planId)}"><span class="grow">Back from a break</span><span class="chev">›</span></button>` : ''}
+        ${phase === 'active' || phase === 'upcoming' ? `<button type="button" class="list-item" data-action="plan-stop" data-id="${esc(planId)}" style="color:var(--danger)"><span class="grow">Stop ${plan.kind === 'strength' ? 'Program' : 'Plan'}</span></button>` : ''}
+      </div>
+      <p class="tpl-hint">Stopping cancels the sessions from today on; what you have done stays in History.</p>
+    </div>`);
+}
 
 function openPlanSchedule(planId) {
   const plan = findPlan(state, planId);
@@ -153,14 +240,35 @@ function openPlanSchedule(planId) {
       <span style="width:52px"></span>
     </div>
     <div class="sheet-body">
-      <div class="sub" style="margin:4px 0 10px">${esc(planDatesText(plan.startDate, plan.endDate))} · ${esc(planStatusText(plan, pr, today))} · ${pr.completed} of ${plural(pr.total, 'session')} done</div>
+      <div class="sub" style="margin:4px 0 0">${planTypeTag(plan)} ${esc(planDatesText(plan.startDate, plan.endDate))} · ${esc(planStatusText(plan, pr, today))}</div>
+      ${planProgressHtml(pr)}
       ${breakLinksHtml(plan, today)}
-      ${plan.kind === 'run' && plan.summary ? runAssessmentHtml(plan.summary, plan.summary.goal) : ''}
-      ${(plan.kind === 'swim' || plan.kind === 'bike') && plan.summary ? sportAssessmentHtml(plan.summary) : ''}
-      ${plan.weeks.map((w) => `
-        <div class="section-title">Week ${esc(w.week)}${plan.kind !== 'strength' ? ` · ${esc(w.label || '')} · ${esc(weekVolumeText(plan, w))}` : w.deload ? ' · Lighter week' : ''}</div>
-        <div class="card">${w.sessions.map((s) => sessionRow(plan, byKey.get(s.key))).join('')}</div>`).join('')}
+      ${(() => {
+        // Active plans open at the current week; earlier weeks fold into one row that opens them.
+        const cur = phase === 'active' ? Math.max(1, Math.min(pr.week || 1, plan.weeks.length)) : 1;
+        const earlier = plan.weeks.slice(0, cur - 1);
+        const open = (ui.schedPast || {})[plan.id];
+        const clashes = planClashes(plan, today);
+        const weekHtml = (w) => `
+        <div class="sched-week">Week ${esc(w.week)}${plan.kind !== 'strength' ? ` · ${esc(w.label || '')} · ${esc(weekVolumeText(plan, w))}` : w.deload ? ' · Lighter week' : ''}${w.week === cur && phase === 'active' ? ' <span class="plan-tag small">This week</span>' : ''}</div>
+        <div class="card">${w.sessions.map((s) => sessionRow(plan, byKey.get(s.key), clashes)).join('')}</div>`;
+        let html = '';
+        if (earlier.length) {
+          const ks = new Set(earlier.flatMap((w) => w.sessions.map((s) => s.key)));
+          const ss = list.filter((s) => ks.has(s.key));
+          const n = (st) => ss.filter((s) => s.status === st).length;
+          const range = earlier.length === 1 ? `Week ${earlier[0].week}` : `Weeks ${earlier[0].week}–${earlier[earlier.length - 1].week}`;
+          html += `<button type="button" class="list-item sched-past" data-action="sched-past" data-id="${esc(plan.id)}" aria-expanded="${!!open}">
+            <span class="grow"><span class="plan-sess-title">${open ? 'Hide' : 'Show'} earlier weeks · ${esc(range)}</span>
+              <span class="plan-day">${n('completed')} completed · ${n('missed')} missed · ${n('skipped')} skipped${open ? '' : ' · tap to see every session'}</span></span>
+            <span class="chev sched-chev${open ? ' open' : ''}" aria-hidden="true">›</span></button>`;
+          if (open) html += earlier.map(weekHtml).join('');
+        }
+        return html + plan.weeks.slice(cur - 1).map(weekHtml).join('');
+      })()}
       <p class="tpl-hint">Missed sessions stay where they were; nothing is moved for you. Open a session to start, skip or move it.</p>
+      ${plan.kind === 'run' && plan.summary ? `<div class="section-title">Plan details</div>${runAssessmentHtml(plan.summary, plan.summary.goal)}` : ''}
+      ${(plan.kind === 'swim' || plan.kind === 'bike') && plan.summary ? `<div class="section-title">Plan details</div>${sportAssessmentHtml(plan.summary)}` : ''}
       <div class="btn-row">
         ${phase === 'active' || phase === 'upcoming' ? '<button type="button" class="btn danger" data-action="plan-stop" data-id="' + esc(plan.id) + '">Stop Program</button>' : ''}
         <button type="button" class="btn ${phase === 'active' || phase === 'upcoming' ? 'secondary' : 'danger'}" data-action="plan-delete" data-id="${esc(plan.id)}">Delete Plan</button>
@@ -203,11 +311,7 @@ function openPlanSession(id) {
     <div class="sheet-body plan-session-sheet">
       <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${s.moved ? ` (moved from ${esc(sessionDayText(s.originalDate))})` : ''}</div>
       <div style="margin:8px 0">${statusChip(s)}${s.targets?.deload ? ' <span class="plan-flag">Lighter week</span>' : ''}</div>
-      ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
-      ${sessionSport(s) !== 'strength' ? sportDetailsHtml(s.targets) : `<div class="card review-list">
-        ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div><div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div></div>`).join('')}
-      </div>`}
-      <div class="btn-col">${actions.join('')}</div>
+      <div class="btn-col" style="margin-top:6px">${actions.join('')}</div>
       ${canMove ? `
         <div class="section-title">Move to another day</div>
         <div class="card card-pad move-row">
@@ -215,6 +319,11 @@ function openPlanSession(id) {
           <button type="button" class="btn secondary small" data-action="plan-move" data-id="${esc(id)}">Move</button>
         </div>
         <p class="tpl-hint">Only this session moves; the rest of the plan stays as it is.</p>` : ''}
+      <div class="section-title">Session</div>
+      ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
+      ${sessionSport(s) !== 'strength' ? sportDetailsHtml(s.targets) : `<div class="card review-list">
+        ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div><div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div></div>`).join('')}
+      </div>`}
     </div>`);
 }
 
@@ -335,6 +444,9 @@ function handlePlanAction(action, el) {
       break;
     }
     case 'plan-open': openPlanSchedule(id); break;
+    case 'plan-menu': openPlanMenu(id); break;
+    case 'plan-catalog': ui.planCatalog = !ui.planCatalog; render(); break;
+    case 'sched-past': { const body = $('#sheet .sheet-body'), top = body ? body.scrollTop : 0; ui.schedPast = { ...(ui.schedPast || {}), [id]: !(ui.schedPast || {})[id] }; openPlanSchedule(id); const nb = $('#sheet .sheet-body'); if (nb) nb.scrollTop = top; break; }
     case 'plan-session': openPlanSession(id); break;
     case 'plan-skip': { const [p, k] = id.split('|'); if (planResult(skipSession(state, p, k), 'Session skipped')) { render(); openPlanSession(id); } break; }
     case 'plan-done': { const [p, k] = id.split('|'); if (planResult(markSessionDone(state, p, k), 'Marked as done')) { render(); openPlanSession(id); } break; }
