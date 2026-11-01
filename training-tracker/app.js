@@ -134,16 +134,57 @@ function applyTheme() {
 }
 applyTheme();
 /** Write the whole state. On failure the data stays in memory and a warning stays up (backup.js). */
+/*
+  Several tabs or windows: every successful write also bumps a small revision counter
+  (REV_KEY, not part of backups). A tab remembers the revision it last read or wrote:
+  - before writing, it checks that the stored revision is still its own; if another tab wrote
+    in between, it doesn't save (that would overwrite newer data) and asks to reload;
+  - when another tab writes (storage event) or this tab comes back into view, it quietly takes
+    over the newer data, unless something here could be lost (an unsaved change, an open sheet
+    or a field being typed in while visible); then it stops saving and asks to reload instead.
+*/
+const REV_KEY = `${STORAGE_KEY}.rev`;
+const readRev = () => { try { return Number(localStorage.getItem(REV_KEY)) || 0; } catch (e) { return 0; } };
+let myRev = readRev();
+let staleTab = false;
+// Revisions only go up, so a higher stored one means another tab saved since (a lower one means the
+// stored data was cleared, which this tab may write again).
+const tabIsCurrent = () => !staleTab && readRev() <= myRev;
+/** After this tab wrote the data: record the next revision (best effort; the data is already written). */
+function claimRev() {
+  try { const next = Math.max(readRev(), myRev) + 1; localStorage.setItem(REV_KEY, String(next)); myRev = next; } catch (e) { /* tiny key; ignore */ }
+}
+
+/** Write the whole state. On failure the data stays in memory and a warning stays up (backup.js). */
 function save() {
+  if (!tabIsCurrent()) { onStaleTab(); return false; } // never overwrite another tab's newer data
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     onSaveFailed();
     return false;
   }
+  claimRev();
   onSaveSucceeded();
   return true;
 }
+
+/** Another tab saved: take its data over quietly when nothing here can be lost, else stop and ask to reload. */
+function syncFromOtherTab() {
+  if (staleTab || readRev() <= myRev) return;
+  const sheetOpen = !document.getElementById('sheet')?.classList.contains('hidden');
+  const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (saveFailing || (document.visibilityState === 'visible' && (sheetOpen || typing))) { onStaleTab(); return; }
+  const activeId = state.active?.id;
+  myRev = readRev();
+  state = load();
+  if (state.active?.id !== activeId) stopRest();
+  if (ui.tab === 'workout' && !state.active) ui.tab = 'home';
+  applyTheme();
+  render();
+}
+window.addEventListener('storage', (e) => { if (e.key === null || e.key === REV_KEY) syncFromOtherTab(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncFromOtherTab(); });
 
 // Opens on Home; straight into the logger when a workout is in progress.
 const ui = { pendingRestore: null, tab: state.active ? 'workout' : 'home', progressView: 'progress', progressExercise: null, restEnd: null, draft: null, draftOriginal: null, wdraft: null, wdraftOriginal: null,
@@ -1627,6 +1668,7 @@ document.addEventListener('click', (ev) => {
     case 'export': exportData(); break;
     case 'backup-snooze': snoozeBackupReminder(); break;
     case 'retry-save': retrySave(); break;
+    case 'stale-reload': allowUnload = true; location.reload(); break;
     case 'persist-ask': checkPersistentStorage(true).then((r) => toast(r === 'granted' ? 'Persistent storage is on' : r === 'unsupported' ? 'Not available in this browser' : 'The browser didn\'t allow it')); break;
     case 'restore-confirm': confirmRestore(); break;
     case 'restore-cancel': ui.pendingRestore = null; closeSheet(); toast('Restore cancelled. Nothing was changed.'); break;
@@ -1636,7 +1678,12 @@ document.addEventListener('click', (ev) => {
     case 'import': $('#import-file').click(); break;
     case 'reset':
       if (confirm('Erase ALL workouts, templates, weigh-ins, plans and custom exercises? A copy stays on this device for “Undo last restore”, but exporting a backup first is safer.')) {
-        keepBeforeRestoreCopy();
+        if (!tabIsCurrent()) { onStaleTab(); break; }
+        // The promised safety copy must exist before anything is erased.
+        if (!keepBeforeRestoreCopy()) {
+          if (confirm('Nothing was erased: there isn\'t enough storage on this device to keep the safety copy for “Undo last restore”.\n\nExport a backup now? You can try erasing again afterwards.')) exportData();
+          break;
+        }
         state = defaultState(); stopRest(); save(); applyTheme(); render(); toast('All data erased');
       }
       break;

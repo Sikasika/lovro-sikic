@@ -512,6 +512,7 @@ function beforeRestoreInfo() {
 async function confirmRestore() {
   const pending = ui.pendingRestore;
   if (!pending) return;
+  if (!tabIsCurrent()) { onStaleTab(); return; } // this tab's data is out of date: never write it back
   const before = state;
 
   // 1. Optional exported copy of the current data.
@@ -544,6 +545,7 @@ async function confirmRestore() {
     showImportError(['The backup could not be saved on this device (storage may be full).']);
     return;
   }
+  claimRev();
   state = next;
   onSaveSucceeded(); // the restored data is written in full
   applyTheme();
@@ -770,4 +772,19 @@ window.addEventListener('beforeunload', (e) => {
 
 function retrySave() {
   if (!save()) toast('Still can\'t save. Export a backup to keep your changes.');
+}
+
+/* Another tab or window saved newer data: this tab stops saving until it is reloaded. */
+function onStaleTab() {
+  staleTab = true;
+  if ($('#stale-warning')) return;
+  const el = document.createElement('div');
+  el.id = 'stale-warning';
+  el.className = 'save-warning stale-warning';
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `
+    <div class="sw-text"><b>Changed in another tab</b>
+      <span>Your data was updated in another tab or window. To keep those changes, this tab has stopped saving. Reload to continue with the latest data; anything changed here since then isn't saved.</span></div>
+    <div class="sw-actions"><button type="button" class="btn small" data-action="stale-reload">Reload</button></div>`;
+  document.body.insertBefore(el, $('#view'));
 }
