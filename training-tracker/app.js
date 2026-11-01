@@ -1330,6 +1330,18 @@ function renderSettings() {
 
 /* ---------- Sheets ---------- */
 
+/**
+ * Focus a field shortly after a sheet opens (so the keyboard comes up), unless a field is
+ * already focused by then: never pull the cursor away from a field the user is typing in.
+ */
+function focusSoon(selector, ms = 300) {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    document.querySelector(selector)?.focus();
+  }, ms);
+}
+
 function openSheet(html) {
   $('#sheet').innerHTML = html;
   $('#sheet').classList.remove('hidden');
@@ -1597,7 +1609,7 @@ document.addEventListener('click', (ev) => {
     case 'new-template':
       beginTemplateDraft(null);
       openTemplateEditor();
-      setTimeout(() => $('#draft-name')?.focus(), 300);
+      focusSoon('#draft-name');
       break;
     case 'edit-template': {
       beginTemplateDraft(state.templates.find((x) => x.id === id));
@@ -1648,7 +1660,7 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'exm-cat': ui.exm.cat = el.dataset.v; $('#exm-list').innerHTML = exerciseManagerList(); break;
-    case 'exm-new': openExerciseEditor(null); setTimeout(() => $('#exd-name')?.focus(), 300); break;
+    case 'exm-new': openExerciseEditor(null); focusSoon('#exd-name'); break;
     case 'exm-edit': openExerciseEditor(id); break;
     case 'exd-cat': ui.exdraft.category = el.dataset.v; openExerciseEditor(); break;
     case 'exd-mus': case 'exd-mus-clear': {
@@ -1856,6 +1868,7 @@ function showUpdateNotice() {
 // First render once every script has loaded (Home uses Statistics and Insights helpers).
 document.addEventListener('DOMContentLoaded', () => {
   render();
+  restoreRest();
   checkPersistentStorage(hasDataWorthBackingUp());
   if (loadWarning) setTimeout(() => alert(loadWarning), 300);
 });

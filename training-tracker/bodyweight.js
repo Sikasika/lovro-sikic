@@ -229,7 +229,7 @@ function openWeighInEditor(id) {
       <p class="tpl-hint">One weigh-in per day. Saving on a day that already has one asks before replacing it.</p>
       ${w ? `<div class="btn-row"><button type="button" class="btn danger" data-action="bw-delete">Delete Weigh-in</button></div>` : ''}
     </div>`);
-  if (!w) setTimeout(() => $('#bw-kg')?.focus(), 300);
+  if (!w) focusSoon('#bw-kg');
 }
 
 function closeWeighInEditor() {

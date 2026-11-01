@@ -894,26 +894,72 @@ function discardActiveWorkout() {
 
 /* ---------- Rest timer ---------- */
 
+/*
+  The running rest is kept as an absolute end time (ms since 1970) under its own key,
+  { end, workoutId }, so a reload or a return from the background shows the real time left.
+  It is not part of the saved data or backups. It belongs to one workout in progress:
+  finishing, discarding or replacing that workout clears it.
+*/
+const REST_KEY = 'training-tracker.v1.rest';
+const REST_LATE_NOTICE_MS = 10 * 60 * 1000; // after a reload, say "rest over" only if it ended this recently
 let restInterval = null;
 
-function startRest(seconds = state.settings.rest) {
-  if (!seconds) return;
-  restSeq++;
-  ui.restEnd = Date.now() + seconds * 1000;
+function storeRest() {
+  if (typeof tabIsCurrent === 'function' && !tabIsCurrent()) return; // an out-of-date tab never writes
+  try {
+    if (ui.restEnd && state.active) localStorage.setItem(REST_KEY, JSON.stringify({ end: ui.restEnd, workoutId: state.active.id }));
+    else localStorage.removeItem(REST_KEY);
+  } catch (e) { /* no storage: the timer still runs until a reload */ }
+}
+
+function runRest() {
   clearInterval(restInterval);
   restInterval = setInterval(tickRest, 250);
   tickRest();
+}
+
+/** Start a new rest; it replaces any rest still running. */
+function startRest(seconds = state.settings.rest) {
+  if (!seconds) return;
+  restSeq++;
+  ui.restOverPending = null;
+  ui.restEnd = Date.now() + seconds * 1000;
+  storeRest();
+  runRest();
+}
+
+/** After a reload: carry on with the stored rest of this workout, or say it is over. */
+function restoreRest() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(REST_KEY) || 'null'); } catch (e) { saved = null; }
+  const valid = saved && Number.isFinite(saved.end) && state.active && saved.workoutId === state.active.id;
+  if (!valid) { try { localStorage.removeItem(REST_KEY); } catch (e) { /* ignore */ } return; }
+  restSeq++;
+  ui.restEnd = saved.end;
+  if (saved.end > Date.now()) { runRest(); return; }
+  // Ended while the app was closed: show it as over (never restart it).
+  const end = saved.end;
+  stopRest();
+  if (Date.now() - end < REST_LATE_NOTICE_MS) restOverNotice(end);
+}
+
+/** "Rest over" message; late = the app wasn't open when it ended. */
+function restOverNotice(end) {
+  const late = Date.now() - end;
+  toast(late < 3000 ? 'Rest over. Next set! 🔔' : `Rest over · ended ${fmtDuration(late)} ago`);
 }
 
 /** `manual`: the rest was shortened to zero by hand (no sound). */
 function tickRest(manual = false) {
   if (!ui.restEnd) { stopRest(); return; }
   if (ui.restEnd - Date.now() <= 0) {
-    const onTime = Date.now() - ui.restEnd < 3000; // not after the app was suspended
+    const end = ui.restEnd;
+    const onTime = Date.now() - end < 3000; // not after the app was suspended
     stopRest();
     if (!manual && onTime) playRestSound(restSeq);
     haptic();
-    toast('Rest over. Next set! 🔔');
+    // Hidden (another app, or the screen off): show the message when the app is back.
+    if (document.visibilityState === 'hidden') ui.restOverPending = end; else restOverNotice(end);
     return;
   }
   updateRestUI();
@@ -923,8 +969,16 @@ function stopRest() {
   clearInterval(restInterval);
   restInterval = null;
   ui.restEnd = null;
+  storeRest();
   updateRestUI();
 }
+
+// Back in the app: correct the time left at once, or show that the rest ended meanwhile.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || typeof state === 'undefined') return;
+  if (ui.restEnd) tickRest();
+  else if (ui.restOverPending) { const end = ui.restOverPending; ui.restOverPending = null; if (state.active) restOverNotice(end); }
+});
 
 const restLeftText = () => fmtDuration(Math.max(0, ui.restEnd - Date.now()) + 999);
 
@@ -972,7 +1026,7 @@ function handleWorkoutAction(action, el, ei, si) {
     case 'start-flow': openStartChooser(); break;
     case 'review': openReview(el.dataset.kind, el.dataset.id); break;
     case 'home-choose-session': openTodaysSessionChooser(); break;
-    case 'swap-exercise': ui.swapEntry = ei; openExercisePicker('swap'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
+    case 'swap-exercise': ui.swapEntry = ei; openExercisePicker('swap'); focusSoon('#exercise-search'); break;
     case 'repeat': openReview('repeat', el.dataset.id); break;
     case 'begin': {
       const r = ui.review;
@@ -987,7 +1041,7 @@ function handleWorkoutAction(action, el, ei, si) {
     case 'finish': openFinishSheet(); break;
     case 'save-workout': saveActiveWorkout(el.dataset.include === '1'); break;
     case 'discard': discardActiveWorkout(); break;
-    case 'add-exercise': openExercisePicker('pick'); setTimeout(() => $('#exercise-search')?.focus(), 300); break;
+    case 'add-exercise': openExercisePicker('pick'); focusSoon('#exercise-search'); break;
     case 'toggle-set': toggleSet(ei, si); break;
     case 'add-set': {
       const sets = state.active.entries[ei]?.sets;
@@ -1024,11 +1078,11 @@ function handleWorkoutAction(action, el, ei, si) {
     case 'entry-note':
       state.active.entries[ei].note = '';
       save(); closeSheet(); render();
-      setTimeout(() => $(`.ex-note-input[data-note="active"][data-entry="${ei}"]`)?.focus(), 50);
+      focusSoon(`.ex-note-input[data-note="active"][data-entry="${ei}"]`, 50);
       break;
     case 'entry-link': linkWithNext(state.active.entries, ei); save(); closeSheet(); render(); break;
     case 'entry-unlink': unlinkSuperset(state.active.entries, ei); save(); closeSheet(); render(); break;
-    case 'rest-adjust': if (ui.restEnd) { primeRestSound(); ui.restEnd += +el.dataset.dir * 1000; tickRest(true); } break;
+    case 'rest-adjust': if (ui.restEnd) { primeRestSound(); ui.restEnd += +el.dataset.dir * 1000; storeRest(); tickRest(true); } break;
     case 'rest-skip': stopRest(); break;
     case 'use-weight': {
       // Fill only empty weights of unticked working sets; never overwrite or tick anything.
