@@ -126,6 +126,33 @@ async function main() {
   check('8 without typing, the Weight field still gets the cursor', await ev(() => document.activeElement.id), 'bw-kg');
   await ev(() => closeSheet());
 
+  // Add Exercise while a set field is still focused (Safari keeps focus on a field when a button
+  // is tapped; a script click does the same here): the search takes over, nothing goes behind the sheet.
+  await setup();
+  await page.focus('[data-field=weight][data-entry="0"][data-set="0"]');
+  await ev(() => document.querySelector('[data-action=add-exercise]').click()); // no focus change
+  await wait(450);
+  check('9 Add Exercise with a set field focused: the search gets the cursor', await ev(() => document.activeElement.id), 'exercise-search');
+  await page.keyboard.type('Squat'); await wait(150);
+  check('9 typing goes into the search, the hidden set weight is unchanged', await ev(() => `${document.querySelector('#exercise-search').value}|${state.active.entries[0].sets[0].weight}|${document.querySelector('[data-field=weight][data-entry="0"][data-set="0"]').value}`), 'Squat|80|80');
+  await ev(() => closeSheet());
+  await page.click('[data-action=add-exercise]'); await wait(450);
+  check('9 normal tap on Add Exercise: the search gets the cursor', await ev(() => document.activeElement.id), 'exercise-search');
+  await ev(() => closeSheet()); await wait(450);
+  check('9 after closing the sheet nothing grabs focus', await ev(() => document.activeElement.tagName), (v) => v !== 'INPUT');
+  // Typing in another field of the same sheet is still protected (Exercise editor)
+  await ev(() => { state.active = null; save(); ui.tab = 'settings'; render(); openExerciseManager(); }); await wait(200);
+  await page.click('[data-action=exm-new]');
+  const other = await ev(() => [...document.querySelectorAll('#sheet input, #sheet select, #sheet textarea')].find((x) => x.id !== 'exd-name' && x.offsetParent && x.type !== 'checkbox' && x.type !== 'radio')?.id || '');
+  if (other) {
+    await page.focus(`#${other}`); await wait(450);
+    check('9 Exercise editor: a field picked before the delayed focus keeps the cursor', await ev(() => document.activeElement.id), other);
+  } else {
+    await wait(450);
+    check('9 Exercise editor: the name field gets the cursor', await ev(() => document.activeElement.id), 'exd-name');
+  }
+  await ev(() => closeSheet());
+
   check('no page errors', JSON.stringify(errors), '[]');
   console.log(results.join('\n'));
   console.log(`PASSES: ${results.filter((x) => x.startsWith('PASS')).length}  FAILS: ${results.filter((x) => x.startsWith('FAIL')).length}`);

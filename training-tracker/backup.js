@@ -481,18 +481,22 @@ function renderRestoreConfirm() {
         <span class="grow">Save a copy of my current data first<span class="sub" style="display:block">Exports a backup file before restoring</span></span>
         <span class="switch ${saveCopy ? 'on' : ''}" aria-hidden="true"></span>
       </button>
-      <p class="tpl-hint">A copy also stays on this device, so you can use “Undo last restore” in Settings.</p>
+      <p class="tpl-hint">A copy also stays on this device, so you can use “Undo last restore” in Settings. If that copy can't be saved, nothing is restored.</p>
 
       <div class="btn-row"><button class="btn" data-action="restore-confirm">${undo ? 'Undo Restore' : 'Restore Backup'}</button></div>
       <div class="btn-row"><button class="btn danger" data-action="restore-cancel">Cancel</button></div>
     </div>`);
 }
 
-/** Keep the current data on the device so the restore (or an erase) can be undone. */
+/**
+ * Keep the current data on the device so the restore (or an erase) can be undone.
+ * True only when the copy was written and reads back exactly.
+ */
 function keepBeforeRestoreCopy() {
   try {
-    localStorage.setItem(BEFORE_RESTORE_KEY, JSON.stringify(buildBackup()));
-    return true;
+    const copy = JSON.stringify(buildBackup());
+    localStorage.setItem(BEFORE_RESTORE_KEY, copy);
+    return localStorage.getItem(BEFORE_RESTORE_KEY) === copy;
   } catch (e) {
     return false;
   }
@@ -515,21 +519,32 @@ async function confirmRestore() {
   if (!tabIsCurrent()) { onStaleTab(); return; } // this tab's data is out of date: never write it back
   const before = state;
 
-  // 1. Optional exported copy of the current data.
+  // 1. The safety copy on this device (for "Undo last restore") comes first and is required:
+  //    without it nothing is replaced, whatever else happens.
+  let previousCopy = null;
+  try { previousCopy = localStorage.getItem(BEFORE_RESTORE_KEY); } catch (e) { /* none readable */ }
+  // Stopping without a restore puts the previous "Undo last restore" copy back.
+  const keepPreviousCopy = () => {
+    try { if (previousCopy == null) localStorage.removeItem(BEFORE_RESTORE_KEY); else localStorage.setItem(BEFORE_RESTORE_KEY, previousCopy); } catch (e) { /* a copy of the current data stays */ }
+  };
+  if (!keepBeforeRestoreCopy()) {
+    keepPreviousCopy(); // a copy that failed its check is not left behind
+    ui.pendingRestore = null;
+    closeSheet();
+    render();
+    if (confirm('Restore cancelled. A safety copy of your current data couldn\'t be saved on this device (storage may be full), so nothing was replaced.\n\nExport a backup of your current data now? You can free up space and try again afterwards.')) exportData();
+    return;
+  }
+
+  // 2. Optional exported file of the current data.
   if (pending.saveCopy) {
     let result = 'failed';
     try { result = await shareFile(JSON.stringify(buildBackup(), null, 2), backupFilename('before-restore')); } catch (e) { /* handled below */ }
     if (result !== 'shared' && result !== 'downloaded' &&
-        !confirm('The copy of your current data was not saved. Restore anyway? A copy is still kept on this device for “Undo last restore”.')) {
+        !confirm('The backup file of your current data was not saved. Restore anyway? A safety copy of your current data is kept on this device for “Undo last restore”.')) {
+      keepPreviousCopy();
       return;
     }
-  }
-
-  // 2. Copy kept on the device (needed for undo). Without it, only continue if a file copy was made.
-  const kept = keepBeforeRestoreCopy();
-  if (!kept && !pending.saveCopy) {
-    alert('There is not enough storage on this device to keep a safety copy. Turn on “Save a copy of my current data first” and try again.');
-    return;
   }
 
   // 3. Replace and write. If writing fails, put the previous data back.
@@ -541,6 +556,7 @@ async function confirmRestore() {
   } catch (e) {
     state = before;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(before)); } catch (err) { /* unchanged on disk */ }
+    keepPreviousCopy();
     ui.pendingRestore = null;
     showImportError(['The backup could not be saved on this device (storage may be full).']);
     return;

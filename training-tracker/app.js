@@ -1331,14 +1331,19 @@ function renderSettings() {
 /* ---------- Sheets ---------- */
 
 /**
- * Focus a field shortly after a sheet opens (so the keyboard comes up), unless a field is
- * already focused by then: never pull the cursor away from a field the user is typing in.
+ * Focus a field shortly after a sheet opens (so the keyboard comes up), unless the user is
+ * already typing in another field of that same sheet (or screen): never pull the cursor away
+ * from it. A field left focused behind the sheet (Safari keeps focus on a field when a button
+ * is tapped) does not count: the new field takes over, so typing never goes behind the sheet.
  */
 function focusSoon(selector, ms = 300) {
   setTimeout(() => {
+    const target = document.querySelector(selector);
+    if (!target) return;
     const a = document.activeElement;
-    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
-    document.querySelector(selector)?.focus();
+    const area = target.closest('#sheet') || document.getElementById('view');
+    if (a && a !== target && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && area?.contains(a)) return;
+    target.focus();
   }, ms);
 }
 
