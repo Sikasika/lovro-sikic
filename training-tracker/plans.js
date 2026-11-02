@@ -106,7 +106,13 @@ function planProblems(p, label = 'A plan') {
 const isCount = (v) => Number.isInteger(v) && v >= 1 && v <= 50;
 /** { sets, min, max } of a planned exercise: whole numbers, 1 ≤ min ≤ max ≤ 50. */
 const validTarget = (t) => isPlainObject(t) && isCount(t.sets) && isCount(t.min) && isCount(t.max) && t.min <= t.max;
-const validPlannedExercise = (x) => validTarget(x) && typeof x.name === 'string' && (x.exerciseId == null || (typeof x.exerciseId === 'string' && x.exerciseId !== ''));
+const validPlannedExercise = (x) => validTarget(x) && typeof x.name === 'string' && (x.exerciseId == null || (typeof x.exerciseId === 'string' && x.exerciseId !== '')) && validTargetExtras(x);
+const validPair = (v, lo, hi) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n) && n >= lo && n <= hi) && v[0] <= v[1];
+/** Optional details of a structured program's exercise (see programs.js); absent in older plans. */
+const validTargetExtras = (x) => (x.warmup == null || validPair(x.warmup, 0, 10)) && (x.rest == null || validPair(x.rest, 0, 1800)) &&
+  (x.restSec == null || (Number.isFinite(x.restSec) && x.restSec >= 0 && x.restSec <= 1800)) && (x.dropSets == null || (Number.isInteger(x.dropSets) && x.dropSets >= 1 && x.dropSets <= 5)) &&
+  ['rir', 'technique', 'note'].every((k) => x[k] == null || (typeof x[k] === 'string' && x[k].length <= 1000)) &&
+  (x.subs == null || (Array.isArray(x.subs) && x.subs.length <= 20 && x.subs.every((n) => typeof n === 'string')));
 /** A planned run: total km, estimated minutes and its parts (see run-plan.js). */
 const validRunTarget = (r) => isPlainObject(r) && typeof r.km === 'number' && r.km >= 0 && r.km <= 100 && Number.isFinite(r.estMin) && Array.isArray(r.parts) && r.parts.every((p) => isPlainObject(p) && typeof p.t === 'string') &&
   (r.pace == null || (Array.isArray(r.pace) && r.pace.length === 2 && r.pace.every((x) => Number.isFinite(x) && x > 0)));

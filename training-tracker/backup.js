@@ -207,7 +207,7 @@ function validateBackup(parsed) {
       if (!exIds.has(String(en.exerciseId))) missingRefs++;
       if (en.note != null && typeof en.note !== 'string') errors.push(`${here} has an invalid note.`);
       if (en.superset != null && !validId(en.superset)) errors.push(`${here} has an invalid superset group.`);
-      if (en.planned != null && !validTarget(en.planned)) errors.push(`${here} has an invalid program target.`);
+      if (en.planned != null && !(validTarget(en.planned) && validTargetExtras(en.planned))) errors.push(`${here} has an invalid program target.`);
       if (en.swappedFrom != null && !validId(en.swappedFrom)) errors.push(`${here} has an invalid swap record.`);
       if (isTemplate && typeof en.sets === 'number') return; // oldest templates: just a set count
       if (!Array.isArray(en.sets)) { errors.push(`${here} has no sets.`); return; }

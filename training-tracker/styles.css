@@ -1329,3 +1329,17 @@ body.has-live-bar { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-b
 .finish-long label { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .finish-long input[type=time] { flex: 1; min-width: 0; max-width: 160px; }
 .finish-long input[type=checkbox] { width: 22px; height: 22px; flex: none; }
+
+/* Structured programs: extra target details, expandable sessions, program guide */
+.chip.type-extra { color: var(--muted); }
+.ex-target-note { font-size: 13px; color: var(--muted); margin: -2px 0 6px; }
+.ex-card .ex-target-note { padding: 0 14px; }
+.plan-sess-details > summary { list-style: none; cursor: pointer; }
+.plan-sess-details > summary::-webkit-details-marker { display: none; }
+.plan-sess-details > summary .plan-sess-title::after { content: ' ›'; color: var(--muted); }
+.plan-sess-details[open] > summary .plan-sess-title::after { content: ' ⌄'; }
+.plan-sess-details > .review-list { padding: 0 14px 8px; }
+.plan-sess-details > summary.rv-ex { display: flex; justify-content: space-between; gap: 8px; }
+.program-guide .pg-block { margin-top: 6px; }
+.pg-notes { margin: 8px 0 0; padding-left: 18px; }
+.pg-notes li { margin: 4px 0; }

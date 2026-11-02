@@ -291,14 +291,14 @@ function openPlannedReview(id) {
     <div class="sheet-body review">
       <div class="review-name">${esc(s.title)}</div>
       <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${sport ? '' : ` · ${plural(items.length, 'exercise')} · ${plural(sets, 'set')}`}</div>
-      ${s.targets?.deload ? '<div class="plan-flag">Lighter week</div>' : ''}
+      ${s.targets?.deload ? '<div class="plan-flag">Lighter week</div>' : ''}${planWeekLabel(plan, s.week) && !s.targets?.deload ? `<div class="plan-flag">${esc(planWeekLabel(plan, s.week))}</div>` : ''}
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
       ${s.status === 'completed' || s.status === 'skipped' ? `<div class="finish-note"><span aria-hidden="true">i</span><div>This session is marked ${esc(s.status)}. Logging it now links the new workout to it.</div></div>` : ''}
       ${sport ? sportDetailsHtml(s.targets) : `<div class="card review-list">
         ${items.map((x) => `
           <div class="rv-ex">
             <div class="rv-name"><span class="act-dot act-weights" aria-hidden="true"></span>${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div>
-            <div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div>
+            ${plannedTargetHtml(x)}
           </div>`).join('')}
       </div>`}
     </div>
@@ -436,7 +436,7 @@ function renderEntry(entry, i, letters = []) {
       </div>
       ${entry.note !== undefined ? `<div class="ex-note-row"><input class="ex-note-input" data-note="active" data-entry="${i}" value="${esc(entry.note)}" placeholder="Exercise note, e.g. seat 4, grip width" aria-label="Note for ${name}"></div>` : ''}
       ${last?.note ? `<div class="ex-hint">Last note: “${esc(last.note)}”</div>` : ''}
-      ${entry.planned ? `<div class="ex-target"><span class="rec-k">Target</span><span>${entry.planned.sets} × ${entry.planned.min}–${entry.planned.max} reps${entry.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(entry.swappedFrom))}</span>` : ''}</span></div>` : ''}
+      ${entry.planned ? entryTargetHtml(entry) : ''}
       <div class="set-grid${ck ? ' cardio' : ''}">
         <div class="set-head" aria-hidden="true">
           <span>Set</span><span>Previous</span>
@@ -630,8 +630,14 @@ function toggleSet(ei, si) {
   // In a superset, rest only after the round's last exercise.
   if (set.done) {
     haptic();
-    if (isLastInSuperset(state.active.entries, ei)) { primeRestSound(); startRest(); if (ui.restEnd) tickEffects.get(set).rest = restSeq; }
+    if (isLastInSuperset(state.active.entries, ei)) { primeRestSound(); startRest(plannedRestSec(entry, set)); if (ui.restEnd) tickEffects.get(set).rest = restSeq; }
   }
+}
+
+/** Rest after a working set of a program exercise with its own rest period; otherwise the usual rest. */
+function plannedRestSec(entry, set) {
+  const r = entry?.planned?.restSec;
+  return setType(set) === 'working' && Number.isFinite(r) && r > 0 ? r : state.settings.rest;
 }
 
 function addExerciseToWorkout(exerciseId) {

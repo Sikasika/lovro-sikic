@@ -686,6 +686,14 @@ function renderHistory() {
     </div>`).join('');
 }
 
+/** "Target 3 × 6–8 reps · RIR 1–2 · Rest 2–3 min", its technique and note (live workout and History). */
+function entryTargetHtml(e) {
+  const p = e.planned;
+  const tech = p.technique && STRENGTH_TECHNIQUES[p.technique];
+  const extra = [tech?.hint, p.note].filter(Boolean).join(' ');
+  return `<div class="ex-target"><span class="rec-k">Target</span><span>${esc(plannedTargetParts(p).join(' · '))}${e.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(e.swappedFrom))}</span>` : ''}</span></div>${extra ? `<div class="ex-target-note">${esc(extra)}</div>` : ''}`;
+}
+
 /** Duration of a saved workout, or – when it has no valid end time. */
 function workoutDurationText(w) {
   const ms = new Date(w.end) - new Date(w.start);
@@ -884,7 +892,7 @@ function renderWorkoutDetail(w) {
           ${ss && !ssCont ? `<span class="ss-badge">Superset ${ss}</span>` : ''}
           <div class="hist-ex-head"><span class="hist-ex-name">${esc(exName(e.exerciseId))}</span>${catTag(e.exerciseId)}</div>
           ${e.note ? `<div class="detail-note">📝 ${esc(e.note)}</div>` : ''}
-          ${e.planned ? `<div class="ex-target"><span class="rec-k">Target</span><span>${e.planned.sets} × ${e.planned.min}–${e.planned.max} reps${e.swappedFrom != null ? ` · <span class="swap-note">instead of ${esc(exName(e.swappedFrom))}</span>` : ''}</span></div>` : ''}
+          ${e.planned ? entryTargetHtml(e) : ''}
           ${cmp.line}
           ${!ck && first ? historyProgression(w, e.exerciseId) : ''}
           <div class="hsets">${historySetRows(e, ck, cmp.perSet)}${cardioTotalLine(e, ck)}</div>
@@ -1440,9 +1448,20 @@ function openExercisePicker(mode = 'pick') {
     </div>
     <div class="sheet-body">
       <input class="search" id="exercise-search" type="search" placeholder="Search or create exercise" autocomplete="off" data-mode="${mode}" aria-label="Search exercises">
+      ${mode === 'swap' ? programSubsHtml() : ''}
       <div id="exercise-list">${exercisePickerHtml('', mode)}</div>
     </div>
   `);
+}
+
+/** Swapping a program exercise: the program's own substitutes first (added to the library when picked). */
+function programSubsHtml() {
+  const e = state.active?.entries[ui.swapEntry];
+  const subs = e?.planned?.subs || [];
+  if (!subs.length) return '';
+  return `<div class="section-title">Substitutes from the program</div>
+    <div class="card">${subs.map((n) => `<button class="list-item" data-action="pick-sub" data-name="${esc(n)}"><span class="grow">${esc(n)}</span></button>`).join('')}</div>
+    <div class="section-title">All exercises</div>`;
 }
 
 function openCategoryPicker(name, mode) {
@@ -1646,6 +1665,19 @@ document.addEventListener('click', (ev) => {
       else if (el.dataset.mode === 'swap') swapExercise(ui.swapEntry, id);
       else addExerciseToWorkout(id);
       break;
+    case 'pick-sub': {
+      // A substitute named by the program: use the library's exercise, or add it in the same category.
+      const name = el.dataset.name, k = name.trim().toLowerCase();
+      let ex = state.exercises.find((x) => !x.archived && String(x.name).trim().toLowerCase() === k) || state.exercises.find((x) => String(x.name).trim().toLowerCase() === k);
+      if (!ex) {
+        const cur = exById(state.active?.entries[ui.swapEntry]?.exerciseId);
+        ex = { id: uid(), name, category: catOf(cur) };
+        state.exercises.push(ex);
+        save();
+      }
+      swapExercise(ui.swapEntry, ex.id);
+      break;
+    }
     case 'create-exercise': openCategoryPicker($('#exercise-search').value.trim(), el.dataset.mode); break;
     case 'choose-category': {
       const ex = { id: uid(), name: el.dataset.name, category: el.dataset.category };

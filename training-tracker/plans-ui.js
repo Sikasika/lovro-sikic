@@ -51,7 +51,7 @@ function renderPlans() {
       ${STRENGTH_PROGRAMS.map((p) => `
         <button type="button" class="list-item prog-lib" data-action="plan-setup" data-id="${p.id}"${hasStrength ? ' disabled' : ''}>
           <span class="grow"><span class="prog-lib-name">${esc(p.name)}</span>
-            <span class="sub">${esc(p.level)} · ${p.daysPerWeek} days a week · ${p.weekOptions[0]}–${p.weekOptions[p.weekOptions.length - 1]} weeks</span>
+            <span class="sub">${p.author ? `${esc(p.author)} · ` : ''}${esc(p.level)} · ${p.daysPerWeek} days a week · ${p.fixedWeeks ? weeksText(p.fixedWeeks) : `${p.weekOptions[0]}–${p.weekOptions[p.weekOptions.length - 1]} weeks`}</span>
             <span class="prog-lib-sum">${esc(p.summary)}</span></span>
           <span class="chev" aria-hidden="true">›</span>
         </button>`).join('')}
@@ -250,7 +250,7 @@ function openPlanSchedule(planId) {
         const open = (ui.schedPast || {})[plan.id];
         const clashes = planClashes(plan, today);
         const weekHtml = (w) => `
-        <div class="sched-week">Week ${esc(w.week)}${plan.kind !== 'strength' ? ` · ${esc(w.label || '')} · ${esc(weekVolumeText(plan, w))}` : w.deload ? ' · Lighter week' : ''}${w.week === cur && phase === 'active' ? ' <span class="plan-tag small">This week</span>' : ''}</div>
+        <div class="sched-week">Week ${esc(w.week)}${plan.kind !== 'strength' ? ` · ${esc(w.label || '')} · ${esc(weekVolumeText(plan, w))}` : w.label ? ` · ${esc(w.label)}` : w.deload ? ' · Lighter week' : ''}${w.week === cur && phase === 'active' ? ' <span class="plan-tag small">This week</span>' : ''}</div>
         <div class="card">${w.sessions.map((s) => sessionRow(plan, byKey.get(s.key), clashes)).join('')}</div>`;
         let html = '';
         if (earlier.length) {
@@ -269,6 +269,7 @@ function openPlanSchedule(planId) {
       <p class="tpl-hint">Missed sessions stay where they were; nothing is moved for you. Open a session to start, skip or move it.</p>
       ${plan.kind === 'run' && plan.summary ? `<div class="section-title">Plan details</div>${runAssessmentHtml(plan.summary, plan.summary.goal)}` : ''}
       ${(plan.kind === 'swim' || plan.kind === 'bike') && plan.summary ? `<div class="section-title">Plan details</div>${sportAssessmentHtml(plan.summary)}` : ''}
+      ${plan.summary?.program ? `<div class="section-title">How to follow this program</div>${programGuideHtml(plan.summary.program)}` : ''}
       <div class="btn-row">
         ${phase === 'active' || phase === 'upcoming' ? '<button type="button" class="btn danger" data-action="plan-stop" data-id="' + esc(plan.id) + '">Stop Program</button>' : ''}
         <button type="button" class="btn ${phase === 'active' || phase === 'upcoming' ? 'secondary' : 'danger'}" data-action="plan-delete" data-id="${esc(plan.id)}">Delete Plan</button>
@@ -310,7 +311,7 @@ function openPlanSession(id) {
     </div>
     <div class="sheet-body plan-session-sheet">
       <div class="review-sub">${esc(plan.name)} · Week ${esc(s.week)} · ${esc(sessionDayText(s.date))}${s.moved ? ` (moved from ${esc(sessionDayText(s.originalDate))})` : ''}</div>
-      <div style="margin:8px 0">${statusChip(s)}${s.targets?.deload ? ' <span class="plan-flag">Lighter week</span>' : ''}</div>
+      <div style="margin:8px 0">${statusChip(s)}${s.targets?.deload ? ' <span class="plan-flag">Lighter week</span>' : ''}${planWeekLabel(plan, s.week) && !s.targets?.deload ? ` <span class="plan-flag">${esc(planWeekLabel(plan, s.week))}</span>` : ''}</div>
       <div class="btn-col" style="margin-top:6px">${actions.join('')}</div>
       ${canMove ? `
         <div class="section-title">Move to another day</div>
@@ -322,12 +323,37 @@ function openPlanSession(id) {
       <div class="section-title">Session</div>
       ${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}
       ${sessionSport(s) !== 'strength' ? sportDetailsHtml(s.targets) : `<div class="card review-list">
-        ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div><div class="rv-chips"><span class="chip type-working">${x.sets} × ${x.min}–${x.max} reps</span></div></div>`).join('')}
+        ${items.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.exerciseId ? exName(x.exerciseId) : x.name)}</div>${plannedTargetHtml(x)}</div>`).join('')}
       </div>`}
     </div>`);
 }
 
 /* ---------- Setup and review ---------- */
+
+/** The label of week n of a plan ("Block 2 · Intro week"), or ''. */
+const planWeekLabel = (plan, n) => (plan.kind === 'strength' && plan.weeks.find((w) => w.week === n)?.label) || '';
+
+/** A structured program's guide: author, blocks and how to follow it. */
+function programGuideHtml(g) {
+  return `<div class="card card-pad program-guide">
+    ${g.author ? `<div class="sub">By ${esc(g.author)}</div>` : ''}
+    ${(g.blocks || []).map((b) => `<div class="pg-block"><b>${esc(b.name)}</b> · weeks ${b.from}–${b.to}${b.note ? `<div class="sub">${esc(b.note)}</div>` : ''}</div>`).join('')}
+    ${(g.notes || []).length ? `<ul class="pg-notes">${g.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
+/** Setup screen of a structured program: its guide and the workouts of each block (first week of each). */
+function programStructureHtml(p) {
+  const blocks = p.blocks?.length ? p.blocks : [{ name: 'Weeks', from: 1, to: p.weeks.length }];
+  const firstWeek = (b) => { const i = p.weeks.findIndex((w, k) => k + 1 >= b.from && !w.deload); return i < 0 ? b.from - 1 : i; };
+  return `${p.notes?.length || p.blocks?.length ? `<div class="section-title">How it works</div>${programGuideHtml({ author: p.author, notes: p.notes, blocks: p.blocks })}` : ''}
+    ${blocks.map((b) => {
+      const i = firstWeek(b), wk = p.weeks[i];
+      return `<div class="section-title">${esc(b.name)} · week ${i + 1} workouts</div>
+      <div class="card review-list">${wk.workouts.map((id) => { const w = programWeekWorkout(p, wk, id); return `<details class="plan-sess-details"><summary class="rv-ex"><span class="rv-name">${esc(w.title)}</span><span class="sub">${w.exercises.length} exercises</span></summary>${w.exercises.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.name)}</div>${plannedTargetHtml(x)}</div>`).join('')}</details>`; }).join('')}</div>`;
+    }).join('')}
+    <p class="tpl-hint">Every week's sessions, with their changes, are on the next screen.</p>`;
+}
 
 function openProgramSetup(programId, keep) {
   const p = findProgram(programId);
@@ -354,7 +380,7 @@ function openProgramSetup(programId, keep) {
         </div>
         <div class="sub">${a.days.length} of ${p.daysPerWeek} chosen</div>
       </div>
-      <label class="ps-field"><span class="ps-label">Length</span>
+      ${p.fixedWeeks ? `<div class="ps-field"><span class="ps-label">Length</span><div class="sub">${esc(weeksText(p.fixedWeeks))}, set by the program${p.blocks?.length ? ` (${esc(p.blocks.map((b) => `${b.name}: weeks ${b.from}–${b.to}`).join(', '))})` : ''}</div></div>` : `<label class="ps-field"><span class="ps-label">Length</span>
         <select id="ps-weeks">${p.weekOptions.map((n) => `<option value="${n}"${n === a.weeks ? ' selected' : ''}>${n} weeks</option>`).join('')}</select>
       </label>
       <div class="ps-field"><span class="ps-label">Lighter week</span>
@@ -362,13 +388,13 @@ function openProgramSetup(programId, keep) {
           ${DELOAD_OPTIONS.map(([v, l]) => `<button type="button" data-action="ps-deload" data-v="${v}" class="${a.deload === v ? 'on' : ''}" aria-pressed="${a.deload === v}">${l}</button>`).join('')}
         </div>
         <div class="sub">A lighter week has about a third fewer sets and less weight, to recover.</div>
-      </div>
+      </div>`}
       ${[...problems.map((m) => `<div class="finish-note warn"><span aria-hidden="true">!</span><div>${esc(m)}</div></div>`), ...warnings.map((m) => `<div class="finish-note"><span aria-hidden="true">i</span><div>${esc(m)}</div></div>`)].join('')}
-      <div class="section-title">Workouts</div>
+      ${isStructuredProgram(p) ? programStructureHtml(p) : `<div class="section-title">Workouts</div>
       <div class="card review-list">
         ${p.rotation.map((wid) => `<div class="rv-ex"><div class="rv-name">${esc(p.workouts[wid].title)}</div>
           <div class="rv-chips">${p.workouts[wid].exercises.map((x) => `<span class="chip type-working">${esc(x.name)} ${x.sets}×${x.min}–${x.max}</span>`).join('')}</div></div>`).join('')}
-      </div>
+      </div>`}
     </div>
     <div class="sheet-foot">
       <button type="button" class="btn" data-action="ps-review"${programSetupProblems(p, a, a.start).length ? ' disabled' : ''}>Review Schedule</button>
@@ -382,7 +408,7 @@ function openProgramReview() {
   const pv = previewProgram(p, setupAnswers(a), a.start);
   if (!pv.ok) { openProgramSetup(p.id, true); return; }
   const have = new Set(state.exercises.map((e) => String(e.name).trim().toLowerCase()));
-  const toAdd = [...new Set(Object.values(p.workouts).flatMap((w) => w.exercises.map((x) => x.name)))].filter((n) => !have.has(n.toLowerCase()));
+  const toAdd = [...new Set(pv.plan.weeks.flatMap((w) => w.sessions.flatMap((s) => s.targets.exercises.map((x) => x.name))))].filter((n) => !have.has(n.toLowerCase()));
   const sessions = pv.plan.weeks.reduce((n, w) => n + w.sessions.length, 0);
   openSheet(`
     <div class="sheet-head">
@@ -397,8 +423,11 @@ function openProgramReview() {
       ${pv.conflicts.length ? `<div class="finish-note warn"><span aria-hidden="true">!</span><div><b>Same day as your other plan:</b> ${esc(pv.conflicts.map((c) => sessionDayText(c.date)).join(', '))}. You can move sessions later.</div></div>` : ''}
       ${toAdd.length ? `<div class="finish-note"><span aria-hidden="true">i</span><div>Added to your exercise library when you start: ${esc(toAdd.join(', '))}.</div></div>` : ''}
       ${pv.plan.weeks.map((w) => `
-        <div class="section-title">Week ${w.week}${w.deload ? ' · Lighter week' : ''}</div>
-        <div class="card">${w.sessions.map((s) => `<div class="list-item plan-sess static"><span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span><span class="plan-day">${esc(sessionDayText(s.date))}</span></span><span class="plan-meta">${s.targets.exercises.length} exercises · ${s.targets.exercises.reduce((n, x) => n + x.sets, 0)} sets</span></div>`).join('')}</div>`).join('')}
+        <div class="section-title">Week ${w.week}${w.label ? ` · ${esc(w.label)}` : w.deload ? ' · Lighter week' : ''}</div>
+        <div class="card">${w.sessions.map((s) => isStructuredProgram(p) ? `<details class="plan-sess-details">
+          <summary class="list-item plan-sess"><span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span><span class="plan-day">${esc(sessionDayText(s.date))}</span></span><span class="plan-meta">${s.targets.exercises.length} exercises · ${s.targets.exercises.reduce((n, x) => n + x.sets, 0)} sets</span></summary>
+          <div class="review-list">${s.objective ? `<p class="plan-objective">${esc(s.objective)}</p>` : ''}${s.targets.exercises.map((x) => `<div class="rv-ex"><div class="rv-name">${esc(x.name)}</div>${plannedTargetHtml(x)}</div>`).join('')}</div>
+        </details>` : `<div class="list-item plan-sess static"><span class="grow"><span class="plan-sess-title truncate">${esc(s.title)}</span><span class="plan-day">${esc(sessionDayText(s.date))}</span></span><span class="plan-meta">${s.targets.exercises.length} exercises · ${s.targets.exercises.reduce((n, x) => n + x.sets, 0)} sets</span></div>`).join('')}</div>`).join('')}
       <p class="tpl-hint">The schedule is saved as it is now when you start, so app updates never change it. Missed sessions are not moved automatically.</p>
     </div>
     <div class="sheet-foot">

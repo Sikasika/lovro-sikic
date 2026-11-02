@@ -18,6 +18,27 @@
     drive the weight recommendation for that exercise in program workouts (calc.js).
 
   Loaded after plans.js; registers its programs when loaded.
+
+  Structured programs (one file each in programs/, added with registerStrengthProgram):
+  a fixed number of weeks, each listing its own workouts in order, with per-week changes.
+  Everything program-specific lives in the definition; scheduling, logging, history and
+  statistics are shared. Definition format:
+
+    {
+      id, version, name, author?, level, summary,
+      daysPerWeek, defaultDays: [weekday 0 = Monday, …],
+      notes?: [text],                          // how to follow the program (shown before starting)
+      blocks?: [{ name, from, to, note? }],    // week ranges, e.g. Block 1 = weeks 1–6
+      workouts: { ID: { title, note?, exercises: [EXERCISE] } },
+      weeks: [{ label?, note?, deload?: true, workouts: [ID, …],   // one entry per week, in order
+                changes?: { ID: { 'Exercise name' | index | '*': { …EXERCISE fields } } } }]
+    }
+    EXERCISE: { name, category, sets, reps: n | [min, max], warmup?: n | [lo, hi],
+                rir?: text | n | [lo, hi], rest?: seconds | [lo, hi], technique?: 'drop' |
+                'myo' | 'failure' | text, dropSets?: n, note?, subs?: [names] }
+
+  Each week needs exactly daysPerWeek workouts; sessions fall on the chosen days in order.
+  The resolved targets are saved in the plan, so later edits never change a running plan.
 */
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // index 0 = Monday
@@ -87,8 +108,8 @@ const OBJECTIVE_NORMAL = 'Work in the target rep range. When every working set r
 const OBJECTIVE_DELOAD = 'Lighter week: fewer sets and about 10% less weight than last week. Stop 2–3 reps short of failure.';
 const deloadSets = (n) => Math.max(1, Math.ceil((n * 2) / 3));
 
-/** The program's default setup answers. */
-const programDefaults = (p) => ({ days: [...p.defaultDays], weeks: p.defaultWeeks, deload: 4 });
+/** The program's default setup answers (a structured program has its own weeks and lighter weeks). */
+const programDefaults = (p) => ({ days: [...p.defaultDays], weeks: p.defaultWeeks, deload: p.fixedWeeks ? 0 : 4 });
 
 /** Problems that stop a setup (messages), [] when it can start. */
 function programSetupProblems(p, answers, startDate, today = todayKey()) {
@@ -100,7 +121,7 @@ function programSetupProblems(p, answers, startDate, today = todayKey()) {
     out.push(`Choose exactly ${p.daysPerWeek} training days (${days.length} chosen).`);
   }
   if (!p.weekOptions.includes(answers?.weeks)) out.push('Choose the program length.');
-  if (!DELOAD_OPTIONS.some(([v]) => v === answers?.deload)) out.push('Choose how often to have a lighter week.');
+  if (p.fixedWeeks ? answers?.deload !== 0 : !DELOAD_OPTIONS.some(([v]) => v === answers?.deload)) out.push('Choose how often to have a lighter week.');
   return out;
 }
 
@@ -154,6 +175,166 @@ function buildProgramWeeks(p, answers, startDate) {
 
 STRENGTH_PROGRAMS.forEach((p) => registerPlanDefinition({ ...p, build: (answers, startDate) => buildProgramWeeks(p, answers, startDate) }));
 const findProgram = (id) => STRENGTH_PROGRAMS.find((p) => p.id === id) || null;
+
+/* ---------- Structured programs (fixed weeks with their own workouts) ---------- */
+
+/** Intensity techniques a program can name; other text is shown as it is. */
+const STRENGTH_TECHNIQUES = {
+  drop: { label: 'Drop set', hint: 'After the last working set, lower the weight and keep going for more reps.' },
+  myo: { label: 'Myo-reps', hint: 'After the activation set, rest briefly and do short mini-sets with the same weight.' },
+  failure: { label: 'Last set to failure', hint: 'Take the last working set to failure with good form.' }
+};
+const techniqueLabel = (t) => (t ? STRENGTH_TECHNIQUES[t]?.label || String(t) : '');
+
+const isStructuredProgram = (p) => Array.isArray(p?.weeks);
+const pairOf = (v) => (Array.isArray(v) ? [v[0], v[1] ?? v[0]] : v == null ? null : [v, v]);
+const isWhole = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+
+/** One exercise of a definition → the target saved in the plan (plain data; only set fields). */
+function programExerciseTarget(x) {
+  const [min, max] = pairOf(x.reps) || [x.min, x.max];
+  const t = { name: x.name, category: x.category, sets: x.sets, min, max };
+  const wu = pairOf(x.warmup);
+  if (wu && wu[1] > 0) t.warmup = wu;
+  if (x.rir != null && x.rir !== '') t.rir = Array.isArray(x.rir) ? `${x.rir[0]}–${x.rir[1]}` : String(x.rir);
+  const rest = pairOf(x.rest);
+  if (rest) { t.rest = rest; t.restSec = rest[0]; }
+  if (x.technique) t.technique = String(x.technique);
+  if (x.technique === 'drop') t.dropSets = x.dropSets || 1;
+  if (x.note) t.note = String(x.note);
+  if (Array.isArray(x.subs) && x.subs.length) t.subs = x.subs.map(String);
+  return t;
+}
+
+/** The exercises of workout `id` in a week, with that week's changes applied (pure). */
+function programWeekWorkout(p, week, id) {
+  const wk = p.workouts[id];
+  const ch = week.changes?.[id] || {};
+  return {
+    title: wk.title,
+    note: wk.note,
+    exercises: wk.exercises.map((x, i) => programExerciseTarget({ ...x, ...(ch['*'] || {}), ...(ch[i] || {}), ...(ch[x.name] || {}) }))
+  };
+}
+
+/** Problems in a structured definition (for its author and the tests); [] when it is complete. */
+function programDefinitionProblems(p) {
+  const out = [];
+  if (!p || typeof p.id !== 'string' || typeof p.name !== 'string') return ['A program needs an id and a name.'];
+  const at = (s) => `${p.name}: ${s}`;
+  if (!isWhole(p.daysPerWeek, 1, 7)) out.push(at('daysPerWeek must be 1–7.'));
+  if (!Array.isArray(p.defaultDays) || p.defaultDays.length !== p.daysPerWeek) out.push(at('defaultDays must list daysPerWeek weekdays.'));
+  if (!p.workouts || !Object.keys(p.workouts).length) out.push(at('no workouts.'));
+  if (!Array.isArray(p.weeks) || !p.weeks.length) out.push(at('no weeks.'));
+  const checkEx = (x, where) => {
+    const [min, max] = pairOf(x.reps) || [];
+    if (!x.name || typeof x.name !== 'string') out.push(at(`${where}: exercise without a name.`));
+    if (!isWhole(x.sets, 1, 50)) out.push(at(`${where} ${x.name}: sets must be 1–50.`));
+    if (!isWhole(min, 1, 50) || !isWhole(max, 1, 50) || min > max) out.push(at(`${where} ${x.name}: reps must be a number or [min, max] within 1–50.`));
+    const wu = pairOf(x.warmup);
+    if (wu && !(isWhole(wu[0], 0, 10) && isWhole(wu[1], 0, 10) && wu[0] <= wu[1])) out.push(at(`${where} ${x.name}: warmup must be 0–10 or [lo, hi].`));
+    const rest = pairOf(x.rest);
+    if (rest && !(rest.every((v) => Number.isFinite(v) && v >= 0 && v <= 1800) && rest[0] <= rest[1])) out.push(at(`${where} ${x.name}: rest must be seconds (0–1800) or [lo, hi].`));
+    if (x.technique === 'drop' && x.dropSets != null && !isWhole(x.dropSets, 1, 5)) out.push(at(`${where} ${x.name}: dropSets must be 1–5.`));
+    if (x.subs != null && !(Array.isArray(x.subs) && x.subs.every((n) => typeof n === 'string' && n))) out.push(at(`${where} ${x.name}: subs must be a list of names.`));
+  };
+  Object.entries(p.workouts || {}).forEach(([id, w]) => {
+    if (!w?.title || !Array.isArray(w.exercises) || !w.exercises.length) out.push(at(`workout ${id} needs a title and exercises.`));
+    else w.exercises.forEach((x) => checkEx(x, `workout ${id}`));
+  });
+  (p.weeks || []).forEach((wk, i) => {
+    const where = `week ${i + 1}`;
+    if (!Array.isArray(wk.workouts) || wk.workouts.length !== p.daysPerWeek) { out.push(at(`${where} must list ${p.daysPerWeek} workouts.`)); return; }
+    wk.workouts.forEach((id) => { if (!p.workouts?.[id]) out.push(at(`${where}: unknown workout ${id}.`)); });
+    Object.entries(wk.changes || {}).forEach(([id, ch]) => {
+      const w = p.workouts?.[id];
+      if (!w) { out.push(at(`${where}: changes for unknown workout ${id}.`)); return; }
+      if (!wk.workouts.includes(id)) out.push(at(`${where}: changes for ${id}, which is not in that week.`));
+      Object.keys(ch).forEach((k) => { if (k !== '*' && !w.exercises[k] && !w.exercises.some((x) => x.name === k)) out.push(at(`${where} ${id}: changes for unknown exercise ${k}.`)); });
+    });
+    if (!out.length) wk.workouts.forEach((id) => programWeekWorkout(p, wk, id).exercises.forEach((x) => checkEx({ ...x, reps: [x.min, x.max] }, `${where} ${id}`)));
+  });
+  (p.blocks || []).forEach((b) => { if (!b?.name || !isWhole(b.from, 1, 99) || !isWhole(b.to, b.from, 99) || b.to > (p.weeks || []).length) out.push(at(`block ${b?.name || '?'} has invalid weeks.`)); });
+  return out;
+}
+
+const programBlockOf = (p, n) => (p.blocks || []).find((b) => n >= b.from && n <= b.to) || null;
+
+/** Build the weeks of a structured program (pure; used through createPlan). */
+function buildStructuredWeeks(p, answers, startDate) {
+  const days = [...answers.days].sort((a, b) => a - b);
+  const start = sFromKey(startDate);
+  const startDow = weekdayIndex(startDate);
+  return p.weeks.map((wk, i) => {
+    const n = i + 1;
+    const block = programBlockOf(p, n);
+    const label = [block?.name, wk.label].filter(Boolean).join(' · ');
+    const dates = days.map((d) => sAddDays(start, i * 7 + ((d - startDow + 7) % 7))).sort((a, b) => a - b);
+    return {
+      week: n,
+      ...(label ? { label } : {}),
+      ...(wk.deload ? { deload: true } : {}),
+      sessions: dates.map((date, j) => {
+        const id = wk.workouts[j];
+        const w = programWeekWorkout(p, wk, id);
+        const objective = [wk.note, w.note].filter(Boolean).join(' ');
+        return {
+          key: `w${n}-${j + 1}`,
+          date: sKey(date),
+          type: 'strength',
+          title: w.title,
+          ...(objective ? { objective } : {}),
+          targets: { workout: id, ...(wk.deload ? { deload: true } : {}), exercises: w.exercises }
+        };
+      })
+    };
+  });
+}
+
+/**
+ * Add a structured program to the library. Throws on an incomplete definition, so a
+ * mistake shows up at once (and in the tests) instead of in someone's schedule.
+ */
+function registerStrengthProgram(def) {
+  const problems = programDefinitionProblems(def);
+  if (problems.length) throw new Error(`Invalid program definition: ${problems.slice(0, 3).join(' ')}`);
+  const p = { kind: 'strength', fixedWeeks: def.weeks.length, weekOptions: [def.weeks.length], defaultWeeks: def.weeks.length, ...def };
+  STRENGTH_PROGRAMS.push(p);
+  registerPlanDefinition({
+    ...p,
+    build: (answers, startDate) => buildStructuredWeeks(p, answers, startDate),
+    summarize: () => ({ program: { author: p.author || null, notes: p.notes || [], blocks: (p.blocks || []).map((b) => ({ name: b.name, from: b.from, to: b.to, note: b.note || '' })) } })
+  });
+  return p;
+}
+
+/* ---------- Showing a planned exercise ---------- */
+
+const restText = (r) => {
+  const f = (sec) => (sec % 60 === 0 ? `${sec / 60}` : sec < 60 ? `${sec} s` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`);
+  const unit = r[0] % 60 === 0 && r[1] % 60 === 0 ? ' min' : '';
+  return r[0] === r[1] ? `${f(r[0])}${unit}` : `${f(r[0])}–${f(r[1])}${unit}`;
+};
+
+/** "3 × 6–8 reps" plus the extras a structured program sets: warm-ups, RIR, rest, technique. */
+function plannedTargetParts(x) {
+  const reps = x.min === x.max ? `${x.min}` : `${x.min}–${x.max}`;
+  const parts = [`${x.sets} × ${reps} reps`];
+  if (x.warmup) parts.push(`${x.warmup[0] === x.warmup[1] ? x.warmup[0] : `${x.warmup[0]}–${x.warmup[1]}`} warm-up set${x.warmup[1] === 1 ? '' : 's'}`);
+  if (x.rir) parts.push(`RIR ${x.rir}`);
+  if (x.rest) parts.push(`Rest ${restText(x.rest)}`);
+  if (x.technique) parts.push(techniqueLabel(x.technique) + (x.technique === 'drop' && x.dropSets > 1 ? ` ×${x.dropSets}` : ''));
+  return parts;
+}
+
+/** Chips and notes for a planned exercise (review screens, session sheet). */
+function plannedTargetHtml(x) {
+  const parts = plannedTargetParts(x);
+  const tech = x.technique && STRENGTH_TECHNIQUES[x.technique];
+  return `<div class="rv-chips">${parts.map((t, i) => `<span class="chip ${i === 0 ? 'type-working' : 'type-extra'}">${esc(t)}</span>`).join(' ')}</div>
+    ${x.note || tech ? `<div class="rv-note">${esc([tech?.hint, x.note].filter(Boolean).join(' '))}</div>` : ''}
+    ${x.subs?.length ? `<div class="rv-note">Substitutes: ${esc(x.subs.join(', '))}</div>` : ''}`;
+}
 
 /**
  * Point every planned exercise at an exercise in the library, by name (ignoring case);
@@ -233,10 +414,21 @@ function plannedWorkout(plan, session) {
     },
     entries: items.map((x) => ({
       exerciseId: x.exerciseId,
-      sets: Array.from({ length: Math.max(1, x.sets) }, () => ({ weight: '', reps: '', done: false })),
-      planned: { sets: x.sets, min: x.min, max: x.max }
+      sets: [
+        ...Array.from({ length: x.warmup ? x.warmup[0] : 0 }, () => ({ weight: '', reps: '', type: 'warmup', done: false })),
+        ...Array.from({ length: Math.max(1, x.sets) }, () => ({ weight: '', reps: '', done: false })),
+        ...Array.from({ length: x.technique === 'drop' ? x.dropSets || 1 : 0 }, () => ({ weight: '', reps: '', type: 'drop', done: false }))
+      ],
+      planned: plannedEntryTarget(x)
     }))
   };
+}
+
+/** What a logged entry keeps of its planned exercise: the target plus any program extras. */
+function plannedEntryTarget(x) {
+  const t = { sets: x.sets, min: x.min, max: x.max };
+  ['warmup', 'rir', 'rest', 'restSec', 'technique', 'dropSets', 'note', 'subs'].forEach((k) => { if (x[k] != null) t[k] = JSON.parse(JSON.stringify(x[k])); });
+  return t;
 }
 
 /**
